@@ -46,8 +46,9 @@ ALL_NODES = [
     "TIFERET", "NETZACH", "HOD", "YESOD", "MALKUTH"
 ]
 
-MODEL_AGENT    = os.environ.get("HERMES_MODEL_AGENT",    MODEL_RENDER)
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN",   "")
+MODEL_AGENT        = os.environ.get("HERMES_MODEL_AGENT",        MODEL_RENDER)
+HEARTBEAT_INTERVAL = int(os.environ.get("HERMES_HEARTBEAT_MIN", "30")) * 60  # seconds
+TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN",       "")
 TELEGRAM_ALLOWED = set(
     int(x) for x in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",")
     if x.strip()
@@ -442,12 +443,137 @@ Keep responses concise (2-4 sentences). Plain text, no HTML, no markdown."""
             await asyncio.sleep(5)
 
 
+# ── heartbeat — periodic vessel pulse ────────────────────────────────────────
+
+TASKS_FILE = VESSEL_DIR / "TASKS.md"
+STATE_FILE = VESSEL_DIR / "STATE.md"
+
+
+def _read_tasks() -> list[dict]:
+    """Read tasks from TASKS.md. Format: '- [ ] task' or '- [x] task'."""
+    if not TASKS_FILE.exists():
+        return []
+    tasks = []
+    for line in TASKS_FILE.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("- [ ] "):
+            tasks.append({"task": line[6:].strip(), "done": False})
+        elif line.startswith("- [x] "):
+            tasks.append({"task": line[6:].strip(), "done": True})
+    return tasks
+
+
+def _write_tasks(tasks: list[dict]):
+    """Write tasks back to TASKS.md."""
+    lines = []
+    for t in tasks:
+        mark = "x" if t["done"] else " "
+        lines.append(f"- [{mark}] {t['task']}")
+    TASKS_FILE.write_text("\n".join(lines) + "\n")
+
+
+def _append_heartbeat_log(entry: str):
+    """Append a heartbeat log entry to STATE.md."""
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    log_line = f"\n[{stamp}] {entry}"
+
+    if STATE_FILE.exists():
+        content = STATE_FILE.read_text()
+        if "## Heartbeat" not in content:
+            content += "\n\n## Heartbeat\n"
+        content += log_line
+    else:
+        content = f"# STATE\n\n## Heartbeat\n{log_line}"
+
+    STATE_FILE.write_text(content)
+
+
+async def _heartbeat_loop():
+    """Vessel pulse. Runs every HEARTBEAT_INTERVAL seconds."""
+    await asyncio.sleep(10)  # let the bridge fully start
+    log.info(f"HEARTBEAT started (every {HEARTBEAT_INTERVAL // 60} min)")
+
+    while True:
+        try:
+            ctx = load_vessel()
+
+            # Gather system status
+            tasks     = _read_tasks()
+            pending   = [t for t in tasks if not t["done"]]
+            completed = [t for t in tasks if t["done"]]
+            agents_running = sum(1 for a in _agents.values() if a["status"] == "running")
+
+            status_summary = (
+                f"Vessel: {'active' if (VESSEL_DIR / 'VESSEL.md').exists() else 'no VESSEL.md'}. "
+                f"Static page: {'exists' if INDEX_HTML.exists() else 'not built'}. "
+                f"Tasks: {len(pending)} pending, {len(completed)} done. "
+                f"Agents running: {agents_running}."
+            )
+
+            # Haiku produces a brief log entry
+            resp = await asyncio.to_thread(
+                lambda: client.messages.create(
+                    model=MODEL_CLASSIFY,
+                    max_tokens=100,
+                    system=(
+                        f"You are the heartbeat of this vessel:\n{ctx['vessel'][:300]}\n\n"
+                        f"Current status: {status_summary}\n\n"
+                        "Write a single-sentence heartbeat log entry. "
+                        "Note anything relevant. Be concise. No timestamps."
+                    ),
+                    messages=[{"role": "user", "content": "pulse"}],
+                )
+            )
+            heartbeat_entry = resp.content[0].text.strip()
+            _append_heartbeat_log(heartbeat_entry)
+            log.info(f"HEARTBEAT: {heartbeat_entry}")
+
+            # If there are pending tasks and no agent is currently running, pick the first one
+            if pending and agents_running == 0:
+                task_text = pending[0]["task"]
+                agent_id  = str(uuid.uuid4())[:8]
+
+                _agents[agent_id] = {
+                    "id":      agent_id,
+                    "task":    task_text,
+                    "model":   MODEL_AGENT,
+                    "status":  "running",
+                    "created": datetime.now(timezone.utc).isoformat(),
+                    "result":  None,
+                    "error":   None,
+                    "source":  "heartbeat",
+                }
+
+                asyncio.create_task(_run_heartbeat_task(agent_id, task_text, tasks, pending[0]))
+                log.info(f"HEARTBEAT spawned agent {agent_id}: {task_text[:80]!r}")
+
+        except Exception as e:
+            log.warning(f"HEARTBEAT error: {e}")
+
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+
+async def _run_heartbeat_task(agent_id: str, task: str, all_tasks: list, task_entry: dict):
+    """Run a heartbeat-triggered task and mark it complete when done."""
+    await _run_agent(agent_id, task, MODEL_AGENT)
+
+    # If the agent completed successfully, mark the task done
+    if _agents[agent_id]["status"] == "complete":
+        task_entry["done"] = True
+        _write_tasks(all_tasks)
+        log.info(f"HEARTBEAT task marked complete: {task[:60]!r}")
+
+
 @app.on_event("startup")
 async def startup():
     """Start background services if configured."""
     if TELEGRAM_TOKEN and TELEGRAM_ALLOWED:
         asyncio.create_task(_telegram_loop())
         log.info(f"TELEGRAM enabled for {len(TELEGRAM_ALLOWED)} operator(s)")
+
+    # Heartbeat always runs if vessel exists
+    if (VESSEL_DIR / "VESSEL.md").exists():
+        asyncio.create_task(_heartbeat_loop())
 
 
 # ── browser setup wizard ──────────────────────────────────────────────────────

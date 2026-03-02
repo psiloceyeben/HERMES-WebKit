@@ -252,6 +252,26 @@ curl -X POST http://localhost:8000/agent \
 
 Any task the vessel can think about, an agent can do in the background.
 
+### Heartbeat
+
+The vessel has a pulse. Every 30 minutes (configurable via `HERMES_HEARTBEAT_MIN` in `.env`), the heartbeat:
+
+1. Checks system health -- vessel status, static page, running agents
+2. Writes a one-sentence Haiku log entry to `STATE.md` under `## Heartbeat`
+3. Checks `vessel/TASKS.md` for pending work -- if a task is queued and no agent is running, it picks the first one and runs it
+
+Task queue format in `vessel/TASKS.md`:
+
+```
+- [ ] write three blog posts about sustainable building
+- [ ] analyze the homepage and suggest layout improvements
+- [x] update the contact section with new email
+```
+
+Unchecked tasks get picked up by the heartbeat. Completed tasks are marked `[x]` automatically. Add a task by editing the file -- the heartbeat handles the rest.
+
+The heartbeat starts automatically when the bridge starts (if VESSEL.md exists). The vessel maintains itself.
+
 ### Static output
 
 By default HERMES produces static output. One build, one set of HTML files, served to unlimited visitors at no additional API cost. The AI runs once per build, not once per visitor.
@@ -300,7 +320,8 @@ hermeswebkit/
 Files generated at install time (not committed):
 - `.env` -- API keys and config
 - `vessel/VESSEL.md` -- the site identity (written by the wizard or by hand)
-- `vessel/STATE.md` -- accumulated memory
+- `vessel/STATE.md` -- accumulated memory and heartbeat log
+- `vessel/TASKS.md` -- task queue for the heartbeat (create when needed)
 
 ---
 

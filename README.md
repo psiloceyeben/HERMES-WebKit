@@ -216,6 +216,7 @@ Endpoints:
 - `POST /agent` -- spawn a background agent task (see below)
 - `GET /agent/{id}` -- check agent status and result
 - `GET /agents` -- list all agent tasks
+- `GET /analytics` -- visitor counts by day and page (requires BUILD_TOKEN)
 - `GET /health` -- returns status and node list
 
 Visitors are served the static output directly by nginx. No LLM is involved in serving a visitor unless chat has been explicitly added.
@@ -242,13 +243,13 @@ curl http://localhost:8000/agent/AGENT_ID
 
 The agent gets the full vessel context -- VESSEL.md, STATE.md, all tree nodes, HECATE routing. It is the vessel, working on a task. Not a separate system bolted on. One endpoint, one question, background result.
 
-**Analytics** is an agent task -- no separate system required:
+**Analytics** has a dedicated endpoint. Every page visit is tracked automatically:
 
 ```bash
-curl -X POST http://localhost:8000/agent \
-  -H "Content-Type: application/json" \
-  -d '{"task": "analyze server logs and visitor patterns, write a report"}'
+curl -H "X-Build-Token: YOUR_TOKEN" http://localhost:8000/analytics
 ```
+
+Returns total visits, daily breakdown, and per-page counts. For deeper analysis, run it as an agent task -- the agent can read the analytics data and write a full report.
 
 Any task the vessel can think about, an agent can do in the background.
 
@@ -402,13 +403,6 @@ TELEGRAM_ALLOWED_IDS=your-user-id
 The bridge starts polling. Messages from your allowed IDs route through the full vessel tree -- same HECATE classification, same node traversal, same identity. Responses come back as concise plain text. Prefix a message with `//` for a private note that gets logged but not responded to.
 
 Only `TELEGRAM_ALLOWED_IDS` can talk to the bot. Everyone else is ignored. See `channels/TELEGRAM.md` for team setup and reply windows.
-
----
-
-## Planned
-
-- **Visitor analytics** -- background processing of visitor patterns, form submissions, and behaviour. Already works as an agent task; a dedicated dashboard is planned.
-- **SSH wear** -- an SSH key that drops the connecting entity into vessel context rather than a bash shell.
 
 ---
 

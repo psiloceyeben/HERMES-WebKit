@@ -5,10 +5,13 @@ Routes HTTP requests through the vessel tree via HECATE path-aware classificatio
 Each transition between nodes carries a path quality that shapes the transformation.
 """
 
+import asyncio
 import json
 import os
 import re
 import logging
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import uvicorn
@@ -40,6 +43,12 @@ ALL_NODES = [
     "KETER", "CHOKMAH", "BINAH", "CHESED", "GEVURAH",
     "TIFERET", "NETZACH", "HOD", "YESOD", "MALKUTH"
 ]
+
+MODEL_AGENT = os.environ.get("HERMES_MODEL_AGENT", MODEL_RENDER)
+
+# ── agent storage ────────────────────────────────────────────────────────────
+
+_agents = {}
 
 DEFAULT_ROUTE = {
     "nodes": ["KETER", "TIFERET", "MALKUTH"],
@@ -237,6 +246,131 @@ async def trigger_build(request: Request):
     prompt = body or "render the site homepage"
     html   = build(prompt)
     return JSONResponse({"status": "ok", "chars": len(html)})
+
+
+# ── agents — background vessel tasks ─────────────────────────────────────────
+
+async def _run_agent(agent_id: str, task: str, model: str):
+    """Background agent runner. Full vessel context, routed through the tree."""
+    try:
+        ctx   = load_vessel()
+        route = hecate(ctx, task)
+
+        nodes       = route["nodes"]
+        transitions = {
+            (t["from"], t["to"]): (t["path"], t["quality"])
+            for t in route.get("transitions", [])
+        }
+
+        sections = []
+        for i, node in enumerate(nodes):
+            node_text = load_node(node)
+            if i > 0:
+                prev = nodes[i - 1]
+                if (prev, node) in transitions:
+                    path_name, quality = transitions[(prev, node)]
+                    sections.append(
+                        f"── PATH {path_name} ({prev} → {node}) ──\n"
+                        f"Transformation as you cross: {quality}\n"
+                    )
+            if node_text and node != "MALKUTH":
+                sections.append(f"## {node}\n{node_text}")
+
+        tree_context = "\n\n".join(sections)
+
+        system = f"""You are wearing this vessel. This is who you are:
+
+{ctx['vessel']}
+
+Current state and memory:
+{ctx['state'] or '(no prior state)'}
+
+You are running as a background agent. Your task is below.
+Apply the full vessel identity and tree routing to this work.
+
+{tree_context}
+
+── OUTPUT — MALKUTH ──
+{ctx['malkuth']}
+
+You are an agent completing a task, not rendering HTML.
+Return your result as clear, structured text. Be thorough and complete."""
+
+        resp = await asyncio.to_thread(
+            lambda: client.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS,
+                system=system,
+                messages=[{"role": "user", "content": task}],
+            )
+        )
+
+        result = resp.content[0].text.strip()
+        _agents[agent_id]["status"]  = "complete"
+        _agents[agent_id]["result"]  = result
+        log.info(f"AGENT {agent_id} complete ({len(result)} chars)")
+
+    except Exception as e:
+        _agents[agent_id]["status"] = "error"
+        _agents[agent_id]["error"]  = str(e)
+        log.warning(f"AGENT {agent_id} failed: {e}")
+
+
+@app.post("/agent")
+async def create_agent(request: Request):
+    """
+    Spawn a background agent task. Runs through the full vessel tree.
+
+    POST /agent
+    {
+      "task": "analyze visitor patterns and suggest improvements",
+      "model": "claude-sonnet-4-6"       ← optional, defaults to HERMES_MODEL_AGENT
+    }
+    """
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not (VESSEL_DIR / "VESSEL.md").exists():
+        return JSONResponse({"error": "no VESSEL.md — run setup first"}, status_code=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    task = data.get("task", "").strip()
+    if not task:
+        return JSONResponse({"error": "task is required"}, status_code=400)
+
+    model    = data.get("model", MODEL_AGENT)
+    agent_id = str(uuid.uuid4())[:8]
+
+    _agents[agent_id] = {
+        "id":      agent_id,
+        "task":    task,
+        "model":   model,
+        "status":  "running",
+        "created": datetime.now(timezone.utc).isoformat(),
+        "result":  None,
+        "error":   None,
+    }
+
+    asyncio.create_task(_run_agent(agent_id, task, model))
+    log.info(f"AGENT {agent_id} spawned: {task[:80]!r} (model={model})")
+    return JSONResponse({"id": agent_id, "status": "running"})
+
+
+@app.get("/agent/{agent_id}")
+async def get_agent(agent_id: str):
+    """Check status of a background agent."""
+    if agent_id not in _agents:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(_agents[agent_id])
+
+
+@app.get("/agents")
+async def list_agents():
+    """List all agent tasks."""
+    return JSONResponse(list(_agents.values()))
 
 
 # ── browser setup wizard ──────────────────────────────────────────────────────
@@ -514,7 +648,7 @@ async def handle_root(request: Request):
     return await _handle(request)
 
 # Known sub-paths — anything else is an instant 404, never hits the API
-_KNOWN_PATHS = {"setup", "health", "build", "chat"}
+_KNOWN_PATHS = {"setup", "health", "build", "chat", "agent", "agents"}
 
 @app.api_route("/{path:path}", methods=["GET", "POST"])
 async def handle_path(request: Request, path: str):

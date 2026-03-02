@@ -54,6 +54,38 @@ TELEGRAM_ALLOWED = set(
     if x.strip()
 )
 
+
+# ── analytics storage ────────────────────────────────────────────────────────
+
+ANALYTICS_FILE = VESSEL_DIR / "analytics.json"
+
+
+def _load_analytics() -> dict:
+    if ANALYTICS_FILE.exists():
+        try:
+            return json.loads(ANALYTICS_FILE.read_text())
+        except Exception:
+            pass
+    return {"total": 0, "daily": {}, "pages": {}}
+
+
+def _save_analytics(data: dict):
+    ANALYTICS_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _track_visit(path: str):
+    data  = _load_analytics()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    data["total"] = data.get("total", 0) + 1
+    daily = data.get("daily", {})
+    daily[today] = daily.get(today, 0) + 1
+    data["daily"] = daily
+    pages = data.get("pages", {})
+    key   = path or "/"
+    pages[key] = pages.get(key, 0) + 1
+    data["pages"] = pages
+    _save_analytics(data)
+
 # ── agent storage ────────────────────────────────────────────────────────────
 
 _agents = {}
@@ -799,6 +831,17 @@ async def setup_post(request: Request):
 
 
 
+
+# ── analytics ────────────────────────────────────────────────────────────────
+
+@app.get("/analytics")
+async def analytics(request: Request):
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    data = _load_analytics()
+    return JSONResponse(data)
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -822,11 +865,13 @@ async def _handle(request: Request, path: str = "") -> HTMLResponse:
 
     # GET / with cached build — serve instantly, no API call
     if request.method == "GET" and not path and INDEX_HTML.exists():
+        _track_visit("/")
         log.info("→ GET /  serving static/index.html")
         return HTMLResponse(content=INDEX_HTML.read_text())
 
     # GET / with no cache yet — trigger first build
     if request.method == "GET" and not path and not INDEX_HTML.exists():
+        _track_visit("/")
         log.info("→ GET /  no cache — running first build")
         html = build("render the site homepage for the first time")
         return HTMLResponse(content=html)
@@ -836,6 +881,7 @@ async def _handle(request: Request, path: str = "") -> HTMLResponse:
     label = f"/{path}" if path else "/"
     visitor_input = body or query or f"visitor arrived at {label}"
 
+    _track_visit(label)
     log.info(f"→ {request.method} {label}  input={visitor_input[:80]!r}")
 
     ctx   = load_vessel()
@@ -851,7 +897,7 @@ async def handle_root(request: Request):
     return await _handle(request)
 
 # Known sub-paths — anything else is an instant 404, never hits the API
-_KNOWN_PATHS = {"setup", "health", "build", "chat", "agent", "agents"}
+_KNOWN_PATHS = {"setup", "health", "build", "chat", "agent", "agents", "analytics"}
 
 @app.api_route("/{path:path}", methods=["GET", "POST"])
 async def handle_path(request: Request, path: str):

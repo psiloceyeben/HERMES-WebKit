@@ -5,9 +5,9 @@
 # No additional software needed.
 #
 # What this does:
-#   1. Creates a Hetzner VPS
-#   2. Deploys HERMES WEBKIT to it
-#   3. Configures nginx + systemd
+#   1. Asks four things: Hetzner key, Anthropic key, domain, your idea
+#   2. Creates a Hetzner VPS and deploys HERMES WEBKIT
+#   3. Writes your vessel from your answers
 #   4. Optionally sets up SSL for your domain
 #   Gives you a live URL at the end.
 
@@ -123,6 +123,48 @@ Write-Host ""
 $Domain = Ask-Optional "Domain name (or press Enter to skip):"
 Write-Host ""
 
+# ── 4. Your idea ──────────────────────────────────────────────────────────────
+
+Write-Divider
+Write-Host "  4. YOUR WEBSITE" -ForegroundColor White
+Write-Host ""
+Write-Host "  Describe your website in plain English." -ForegroundColor Gray
+Write-Host "  This writes your vessel -- you can change everything later." -ForegroundColor DarkGray
+Write-Host ""
+
+$VesselName      = Ask-Required "What is your website called?"
+Write-Host ""
+
+Write-Host "  What is it for -- and who is it for?" -ForegroundColor Gray
+$VesselPurpose   = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  What voice or tone? (e.g. warm, direct, formal, poetic, technical)" -ForegroundColor Gray
+$VesselVoice     = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  What does it know about? Your expertise, story, or offerings:" -ForegroundColor Gray
+$VesselKnowledge = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  What do you want visitors to do or feel when they leave?" -ForegroundColor Gray
+$VesselGoal      = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  What makes this specific to you?" -ForegroundColor Gray
+$VesselCharacter = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  What should it never do or say?" -ForegroundColor Gray
+$VesselLimits    = Read-Host "  >"
+Write-Host ""
+
+Write-Host "  Your name or contact (optional -- press Enter to skip):" -ForegroundColor Gray
+$VesselContact   = Read-Host "  >"
+Write-Host ""
+
+Write-Done "Got it."
+
 # ── SSH key ───────────────────────────────────────────────────────────────────
 
 Write-Divider
@@ -216,7 +258,7 @@ SSH $bootstrap
 Write-Info "  System packages installed."
 
 # Clone repo
-SSH "git clone https://github.com/prometheus7/hermeswebkit /root/hermes 2>&1 || (cd /root/hermes && git pull)"
+SSH "git clone https://github.com/psiloceyeben/HERMES-WebKit.git /root/hermes 2>&1 || (cd /root/hermes && git pull)"
 Write-Info "  Code deployed."
 
 # Write .env
@@ -225,7 +267,32 @@ $envContent = "ANTHROPIC_API_KEY=$AnthropicKey`nBUILD_TOKEN=$BuildToken"
 SSH "printf '%s\n' '$envContent' > /root/hermes/.env && chmod 600 /root/hermes/.env"
 Write-Info "  Environment configured."
 
-# systemd service
+# ── Write VESSEL.md ──────────────────────────────────────────────────────────
+
+Write-Step "Writing vessel..."
+
+$vesselLines = @("# $VesselName", "")
+if ($VesselPurpose.Trim())   { $vesselLines += "## Purpose";   $vesselLines += $VesselPurpose.Trim();   $vesselLines += "" }
+if ($VesselVoice.Trim())     { $vesselLines += "## Voice";     $vesselLines += $VesselVoice.Trim();     $vesselLines += "" }
+if ($VesselKnowledge.Trim()) { $vesselLines += "## Knowledge"; $vesselLines += $VesselKnowledge.Trim(); $vesselLines += "" }
+if ($VesselGoal.Trim())      { $vesselLines += "## Goal";      $vesselLines += $VesselGoal.Trim();      $vesselLines += "" }
+if ($VesselCharacter.Trim()) { $vesselLines += "## Character"; $vesselLines += $VesselCharacter.Trim(); $vesselLines += "" }
+if ($VesselLimits.Trim())    { $vesselLines += "## Limits";    $vesselLines += $VesselLimits.Trim();    $vesselLines += "" }
+if ($VesselContact.Trim())   { $vesselLines += "## Contact";   $vesselLines += $VesselContact.Trim();   $vesselLines += "" }
+
+$vesselContent = ($vesselLines -join "`n")
+SSH "mkdir -p /root/hermes/vessel/tree && cat > /root/hermes/vessel/VESSEL.md << 'VESSELEOF'`n$vesselContent`nVESSELEOF"
+Write-Done "Vessel written."
+
+# ── STATE.md ─────────────────────────────────────────────────────────────────
+
+$today = Get-Date -Format "yyyy-MM-dd"
+$stateContent = "# STATE`n`nLaunched: $today`nStatus: live`n`n## Memory`nNothing recorded yet.`n`n## Heartbeat"
+SSH "cat > /root/hermes/vessel/STATE.md << 'STEOF'`n$stateContent`nSTEOF"
+Write-Info "  State initialised."
+
+# ── systemd service ──────────────────────────────────────────────────────────
+
 $service = @"
 [Unit]
 Description=HERMES bridge
@@ -244,7 +311,6 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 "@
-$serviceEscaped = $service -replace '"', '\"'
 SSH "cat > /etc/systemd/system/hermes.service << 'SVCEOF'`n$service`nSVCEOF"
 Write-Info "  Service configured."
 
@@ -304,13 +370,11 @@ if ($Domain) {
     Write-Host "  Your vessel is live." -ForegroundColor White
     Write-Host ""
     Write-Host "  Site:  https://$Domain" -ForegroundColor Green
-    Write-Host "  Setup: https://$Domain/setup" -ForegroundColor Green
 
 } else {
     Write-Host "  Your vessel is live." -ForegroundColor White
     Write-Host ""
     Write-Host "  Site:  http://$IP" -ForegroundColor Green
-    Write-Host "  Setup: http://$IP/setup" -ForegroundColor Green
     Write-Host ""
     Write-Info "  To add a domain later:"
     Write-Info "    1. Point an A record to $IP"
@@ -320,6 +384,5 @@ if ($Domain) {
 
 Write-Host ""
 Write-Divider
-Write-Host "  Open /setup to describe your website and build your vessel." -ForegroundColor DarkGray
-Write-Host "  Everything else is already running." -ForegroundColor DarkGray
+Write-Host "  Everything is running. Your website will build on first visit." -ForegroundColor DarkGray
 Write-Host ""

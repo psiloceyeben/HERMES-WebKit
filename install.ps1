@@ -18,9 +18,18 @@ $ProgressPreference    = "SilentlyContinue"
 
 function Write-Header {
     Clear-Host
+    $Host.UI.RawUI.BackgroundColor = "Black"
+    $Host.UI.RawUI.ForegroundColor = "White"
+    Clear-Host
     Write-Host ""
-    Write-Host "  HERMES WEBKIT" -ForegroundColor White
-    Write-Host "  Your server. Your model. Your presence." -ForegroundColor DarkGray
+    Write-Host "  ##  ##  #####  ####   ##   ##  #####   ####" -ForegroundColor Cyan
+    Write-Host "  ##  ##  ##     ##  #  ### ###  ##     ##" -ForegroundColor Cyan
+    Write-Host "  ######  ####   ####   ## # ##  ####    ###" -ForegroundColor Cyan
+    Write-Host "  ##  ##  ##     ## #   ##   ##  ##        ##" -ForegroundColor Cyan
+    Write-Host "  ##  ##  #####  ##  #  ##   ##  #####  ####" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  WEBKIT" -ForegroundColor DarkCyan -NoNewline
+    Write-Host "  a vessel architecture for AI-inhabited websites" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  -----------------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
@@ -247,7 +256,7 @@ server {
     server_name _;
     root /root/hermes/static;
     index index.html;
-    location ~ ^/(health|build|setup|chat) {
+    location ~ ^/(health|build|setup|chat|agent|agents) {
         proxy_pass         http://127.0.0.1:8000;
         proxy_set_header   Host            \$host;
         proxy_set_header   X-Real-IP       \$remote_addr;

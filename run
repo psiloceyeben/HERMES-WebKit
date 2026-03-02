@@ -147,20 +147,22 @@ server {
 
     root $HERMES_DIR/static;
 
-    location /health {
-        proxy_pass http://127.0.0.1:$PORT;
-        proxy_set_header Host \$host;
+    location ~ ^/(health|build|setup|chat|agent|agents) {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
     }
 
     location / {
-        try_files \$uri \$uri/ @bridge;
+        try_files \$uri \$uri/ \$uri/index.html @bridge;
     }
 
     location @bridge {
-        proxy_pass http://127.0.0.1:$PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_read_timeout 60s;
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
     }
 }
 NGINXEOF

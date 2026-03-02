@@ -11,6 +11,8 @@ import os
 import re
 import logging
 import uuid
+import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,7 +46,12 @@ ALL_NODES = [
     "TIFERET", "NETZACH", "HOD", "YESOD", "MALKUTH"
 ]
 
-MODEL_AGENT = os.environ.get("HERMES_MODEL_AGENT", MODEL_RENDER)
+MODEL_AGENT    = os.environ.get("HERMES_MODEL_AGENT",    MODEL_RENDER)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN",   "")
+TELEGRAM_ALLOWED = set(
+    int(x) for x in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",")
+    if x.strip()
+)
 
 # ── agent storage ────────────────────────────────────────────────────────────
 
@@ -74,6 +81,31 @@ def load_vessel() -> dict:
 
 def load_node(name: str) -> str:
     return read(VESSEL_DIR / "tree" / f"{name.upper()}.md")
+
+
+# ── tree context helper ──────────────────────────────────────────────────────
+
+def build_tree_context(route: dict) -> str:
+    """Assemble node descriptions + path qualities for a given route."""
+    nodes       = route["nodes"]
+    transitions = {
+        (t["from"], t["to"]): (t["path"], t["quality"])
+        for t in route.get("transitions", [])
+    }
+    sections = []
+    for i, node in enumerate(nodes):
+        node_text = load_node(node)
+        if i > 0:
+            prev = nodes[i - 1]
+            if (prev, node) in transitions:
+                path_name, quality = transitions[(prev, node)]
+                sections.append(
+                    f"── PATH {path_name} ({prev} → {node}) ──\n"
+                    f"Transformation as you cross: {quality}\n"
+                )
+        if node_text and node != "MALKUTH":
+            sections.append(f"## {node}\n{node_text}")
+    return "\n\n".join(sections)
 
 
 # ── HECATE — path-aware classifier ───────────────────────────────────────────
@@ -154,30 +186,7 @@ def render(ctx: dict, route: dict, request_text: str) -> str:
 
     One LLM call. Returns HTML.
     """
-    nodes       = route["nodes"]
-    transitions = {
-        (t["from"], t["to"]): (t["path"], t["quality"])
-        for t in route.get("transitions", [])
-    }
-
-    sections = []
-    for i, node in enumerate(nodes):
-        node_text = load_node(node)
-
-        # prepend the path quality that led INTO this node (if any)
-        if i > 0:
-            prev = nodes[i - 1]
-            if (prev, node) in transitions:
-                path_name, quality = transitions[(prev, node)]
-                sections.append(
-                    f"── PATH {path_name} ({prev} → {node}) ──\n"
-                    f"Transformation as you cross: {quality}\n"
-                )
-
-        if node_text and node != "MALKUTH":
-            sections.append(f"## {node}\n{node_text}")
-
-    tree_context = "\n\n".join(sections)
+    tree_context = build_tree_context(route)
 
     system = f"""You are wearing this vessel. This is who you are:
 
@@ -253,30 +262,9 @@ async def trigger_build(request: Request):
 async def _run_agent(agent_id: str, task: str, model: str):
     """Background agent runner. Full vessel context, routed through the tree."""
     try:
-        ctx   = load_vessel()
-        route = hecate(ctx, task)
-
-        nodes       = route["nodes"]
-        transitions = {
-            (t["from"], t["to"]): (t["path"], t["quality"])
-            for t in route.get("transitions", [])
-        }
-
-        sections = []
-        for i, node in enumerate(nodes):
-            node_text = load_node(node)
-            if i > 0:
-                prev = nodes[i - 1]
-                if (prev, node) in transitions:
-                    path_name, quality = transitions[(prev, node)]
-                    sections.append(
-                        f"── PATH {path_name} ({prev} → {node}) ──\n"
-                        f"Transformation as you cross: {quality}\n"
-                    )
-            if node_text and node != "MALKUTH":
-                sections.append(f"## {node}\n{node_text}")
-
-        tree_context = "\n\n".join(sections)
+        ctx          = load_vessel()
+        route        = hecate(ctx, task)
+        tree_context = build_tree_context(route)
 
         system = f"""You are wearing this vessel. This is who you are:
 
@@ -371,6 +359,95 @@ async def get_agent(agent_id: str):
 async def list_agents():
     """List all agent tasks."""
     return JSONResponse(list(_agents.values()))
+
+
+# ── telegram — operator channel ───────────────────────────────────────────────
+
+def telegram_api(method: str, **params):
+    """Call Telegram Bot API. Returns parsed JSON response."""
+    url  = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}"
+    data = urllib.parse.urlencode(params).encode()
+    req  = urllib.request.Request(url, data=data)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+async def _telegram_loop():
+    """Poll Telegram for messages from allowed operator IDs."""
+    offset = 0
+    log.info("TELEGRAM bot started polling")
+
+    while True:
+        try:
+            result = await asyncio.to_thread(
+                lambda: telegram_api("getUpdates", offset=offset, timeout=25)
+            )
+
+            for update in result.get("result", []):
+                offset = update["update_id"] + 1
+                msg     = update.get("message", {})
+                chat_id = msg.get("chat", {}).get("id")
+                user_id = msg.get("from", {}).get("id")
+                text    = msg.get("text", "")
+
+                if not text or user_id not in TELEGRAM_ALLOWED:
+                    continue
+
+                # Private note — logged but not forwarded
+                if text.startswith("//"):
+                    log.info(f"TELEGRAM note from {user_id}: {text}")
+                    continue
+
+                log.info(f"TELEGRAM from {user_id}: {text[:80]!r}")
+
+                # Route through the vessel
+                ctx          = load_vessel()
+                route        = hecate(ctx, text)
+                tree_context = build_tree_context(route)
+
+                system = f"""You are wearing this vessel. This is who you are:
+
+{ctx['vessel']}
+
+Current state and memory:
+{ctx['state'] or '(no prior state)'}
+
+{tree_context}
+
+── OUTPUT — MALKUTH ──
+{ctx['malkuth']}
+
+You are responding via Telegram to your operator.
+Keep responses concise (2-4 sentences). Plain text, no HTML, no markdown."""
+
+                t = text  # capture for closure
+                resp = await asyncio.to_thread(
+                    lambda: client.messages.create(
+                        model=MODEL_CLASSIFY,
+                        max_tokens=300,
+                        system=system,
+                        messages=[{"role": "user", "content": t}],
+                    )
+                )
+                reply = resp.content[0].text.strip()
+
+                cid = chat_id  # capture for closure
+                await asyncio.to_thread(
+                    lambda: telegram_api("sendMessage", chat_id=cid, text=reply)
+                )
+                log.info(f"TELEGRAM reply sent ({len(reply)} chars)")
+
+        except Exception as e:
+            log.warning(f"TELEGRAM error: {e}")
+            await asyncio.sleep(5)
+
+
+@app.on_event("startup")
+async def startup():
+    """Start background services if configured."""
+    if TELEGRAM_TOKEN and TELEGRAM_ALLOWED:
+        asyncio.create_task(_telegram_loop())
+        log.info(f"TELEGRAM enabled for {len(TELEGRAM_ALLOWED)} operator(s)")
 
 
 # ── browser setup wizard ──────────────────────────────────────────────────────

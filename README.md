@@ -229,11 +229,10 @@ An agent is the vessel thinking in the background. Same identity, same tree rout
 ```bash
 curl -X POST http://localhost:8000/agent \
   -H "Content-Type: application/json" \
-  -H "X-Build-Token: YOUR_TOKEN" \
   -d '{"task": "analyze the homepage and suggest three improvements", "model": "claude-haiku-4-5-20251001"}'
 ```
 
-The `model` field is optional -- defaults to `HERMES_MODEL_AGENT` in `.env` (which defaults to the render model). You can run agents on Haiku for speed, Sonnet for depth, or any model your API key supports.
+The `model` field is optional -- defaults to `HERMES_MODEL_AGENT` in `.env` (which defaults to the render model). You can run agents on Haiku for speed, Sonnet for depth, or any model your API key supports. Choose per task.
 
 Check on it:
 
@@ -242,6 +241,16 @@ curl http://localhost:8000/agent/AGENT_ID
 ```
 
 The agent gets the full vessel context -- VESSEL.md, STATE.md, all tree nodes, HECATE routing. It is the vessel, working on a task. Not a separate system bolted on. One endpoint, one question, background result.
+
+**Analytics** is an agent task -- no separate system required:
+
+```bash
+curl -X POST http://localhost:8000/agent \
+  -H "Content-Type: application/json" \
+  -d '{"task": "analyze server logs and visitor patterns, write a report"}'
+```
+
+Any task the vessel can think about, an agent can do in the background.
 
 ### Static output
 
@@ -354,12 +363,30 @@ A website running on this architecture can be maintained for years on tens of do
 
 ---
 
+## Telegram
+
+Your vessel on your phone. Set two environment variables and the vessel is live on Telegram.
+
+1. Message [@BotFather](https://t.me/botfather) on Telegram, run `/newbot`, get your bot token
+2. Message [@userinfobot](https://t.me/userinfobot) to get your numeric user ID
+3. Add to `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_ALLOWED_IDS=your-user-id
+```
+
+4. Restart: `systemctl restart hermes`
+
+The bridge starts polling. Messages from your allowed IDs route through the full vessel tree -- same HECATE classification, same node traversal, same identity. Responses come back as concise plain text. Prefix a message with `//` for a private note that gets logged but not responded to.
+
+Only `TELEGRAM_ALLOWED_IDS` can talk to the bot. Everyone else is ignored. See `channels/TELEGRAM.md` for team setup and reply windows.
+
+---
+
 ## Planned
 
-These features are scaffolded but not yet implemented:
-
-- **Telegram channel** -- receive visitor messages and reply from your phone. Documentation is in `channels/TELEGRAM.md`, env vars are ready in `.env.example`.
-- **Visitor analytics** -- background processing of visitor patterns, form submissions, and behaviour. Reports to the site owner.
+- **Visitor analytics** -- background processing of visitor patterns, form submissions, and behaviour. Already works as an agent task; a dedicated dashboard is planned.
 - **SSH wear** -- an SSH key that drops the connecting entity into vessel context rather than a bash shell.
 
 ---

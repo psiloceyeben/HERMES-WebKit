@@ -213,11 +213,35 @@ Endpoints:
 - `POST /setup` -- writes VESSEL.md from wizard input
 - `POST /build` -- triggers a rebuild through the tree
 - `POST /chat` -- optional visitor chat (one API call per message)
+- `POST /agent` -- spawn a background agent task (see below)
+- `GET /agent/{id}` -- check agent status and result
+- `GET /agents` -- list all agent tasks
 - `GET /health` -- returns status and node list
 
 Visitors are served the static output directly by nginx. No LLM is involved in serving a visitor unless chat has been explicitly added.
 
 The bridge is stateless between builds. All state lives in STATE.md. If you restart the bridge the vessel is unchanged because the vessel is files, not process memory.
+
+### Agents
+
+An agent is the vessel thinking in the background. Same identity, same tree routing, same HECATE classification -- just running asynchronously on a task you define.
+
+```bash
+curl -X POST http://localhost:8000/agent \
+  -H "Content-Type: application/json" \
+  -H "X-Build-Token: YOUR_TOKEN" \
+  -d '{"task": "analyze the homepage and suggest three improvements", "model": "claude-haiku-4-5-20251001"}'
+```
+
+The `model` field is optional -- defaults to `HERMES_MODEL_AGENT` in `.env` (which defaults to the render model). You can run agents on Haiku for speed, Sonnet for depth, or any model your API key supports.
+
+Check on it:
+
+```bash
+curl http://localhost:8000/agent/AGENT_ID
+```
+
+The agent gets the full vessel context -- VESSEL.md, STATE.md, all tree nodes, HECATE routing. It is the vessel, working on a task. Not a separate system bolted on. One endpoint, one question, background result.
 
 ### Static output
 
@@ -279,7 +303,7 @@ Files generated at install time (not committed):
 
 **Changing node behaviour** -- edit any file in `vessel/tree/`. Each node is a plain English description of its role.
 
-**Changing the model** -- set `HERMES_MODEL` in `.env` for the render model and `HERMES_MODEL_HECATE` for the classifier. Defaults are Anthropic Sonnet for rendering and Haiku for classification. For OpenAI models, update the client initialisation in `bridge.py` -- it is one line. For local models via Ollama, point the model name at your local endpoint.
+**Changing the model** -- set `HERMES_MODEL` in `.env` for the render model, `HERMES_MODEL_HECATE` for the classifier, and `HERMES_MODEL_AGENT` for background agents. Defaults are Anthropic Sonnet for rendering and agents, Haiku for classification. Agents can also override the model per-request in the POST body. For OpenAI models, update the client initialisation in `bridge.py` -- it is one line. For local models via Ollama, point the model name at your local endpoint.
 
 **Theming the wizard** -- edit `vessel/WIZARD.md` to change the atmosphere, voice, and greeting of the setup wizard. See `WIZARD.md` in the repo root for examples (mushroom patch, old timey bar, and more).
 

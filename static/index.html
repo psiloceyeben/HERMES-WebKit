@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prometheus7</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0a;
+    --fg: #e8e0d0;
+    --fg-dim: #7a7268;
+    --accent: #e8e0d0;
+    --line: #1e1e1e;
+    --ember: #ff6010;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 16px;
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 24px;
+  }
+
+  main {
+    width: 100%;
+    max-width: 660px;
+    padding: 80px 0 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+  }
+
+  .header { display: flex; flex-direction: column; gap: 12px; }
+
+  .wordmark {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .wordmark span { color: var(--accent); }
+
+  h1 {
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: normal;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--fg);
+  }
+  h1 em { font-style: normal; color: var(--fg-dim); }
+
+  .tagline {
+    font-size: 14px;
+    color: var(--fg-dim);
+    margin-top: 4px;
+    letter-spacing: 0.04em;
+  }
+
+  .rule {
+    width: 100%;
+    height: 1px;
+    background: var(--line);
+    border: none;
+    margin: 0;
+  }
+
+  .block { display: flex; flex-direction: column; gap: 20px; }
+  .block p { font-size: 15px; color: var(--fg); opacity: 0.85; }
+  .block p strong { color: var(--accent); font-weight: bold; opacity: 1; }
+
+  .product {
+    border: 1px solid var(--line);
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+  }
+  .product::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: var(--accent);
+    opacity: 0.4;
+  }
+  .product-label {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .product-name { font-size: 22px; letter-spacing: 0.08em; color: var(--accent); }
+  .product-desc { font-size: 14px; color: var(--fg); opacity: 0.8; line-height: 1.8; }
+  .product-status {
+    display: inline-block;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    border: 1px solid var(--fg-dim);
+    color: var(--fg-dim);
+    padding: 4px 10px;
+    width: fit-content;
+    margin-top: 4px;
+  }
+
+  .proof {
+    font-size: 13px;
+    color: var(--fg-dim);
+    border-left: 2px solid var(--line);
+    padding-left: 16px;
+    line-height: 1.9;
+  }
+  .proof em { font-style: normal; color: var(--fg); opacity: 0.7; }
+
+  .beliefs { display: flex; flex-direction: column; gap: 12px; }
+  .belief {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 16px;
+    align-items: start;
+    font-size: 14px;
+  }
+  .belief-marker { color: var(--fg-dim); font-size: 11px; padding-top: 3px; }
+  .belief-text { color: var(--fg); opacity: 0.8; }
+
+  /* ── CHAT ── */
+  .chat-section { display: flex; flex-direction: column; gap: 16px; }
+
+  .chat-label {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+
+  .chat-log {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  .chat-msg {
+    font-size: 14px;
+    line-height: 1.7;
+    max-width: 92%;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    color: var(--fg-dim);
+    text-align: right;
+  }
+  .chat-msg.vessel {
+    align-self: flex-start;
+    color: var(--fg);
+    opacity: 0.88;
+    border-left: 2px solid var(--line);
+    padding-left: 14px;
+  }
+  .chat-msg.vessel.thinking {
+    opacity: 0.35;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.2; }
+    50%       { opacity: 0.45; }
+  }
+
+  .chat-cta {
+    border: 1px solid var(--line);
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chat-cta p { font-size: 13px; color: var(--fg); opacity: 0.8; }
+  .chat-cta a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--fg-dim);
+    padding-bottom: 2px;
+    width: fit-content;
+  }
+  .chat-cta a:hover { border-bottom-color: var(--accent); }
+
+  .input-row {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--line);
+    transition: border-color 0.15s;
+  }
+  .input-row:focus-within { border-color: var(--fg-dim); }
+  .input-row.disabled { opacity: 0.3; pointer-events: none; }
+
+  input[type="text"] {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--fg);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    padding: 14px 16px;
+    caret-color: var(--accent);
+  }
+  input[type="text"]::placeholder { color: var(--fg-dim); opacity: 0.5; }
+
+  button[type="submit"] {
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--line);
+    color: var(--fg-dim);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 14px 20px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+  button[type="submit"]:hover { color: var(--bg); background: var(--accent); border-left-color: var(--accent); }
+  button[type="submit"]:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .footer {
+    font-size: 11px;
+    color: var(--fg-dim);
+    opacity: 0.4;
+    letter-spacing: 0.12em;
+    padding-bottom: 40px;
+    text-align: center;
+  }
+
+  @media (max-width: 480px) {
+    main { padding: 48px 0 80px; gap: 48px; }
+    .product { padding: 24px; }
+  }
+
+  /* ── MAP OVERLAY ── */
+  #map-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    transition: opacity 0.7s ease;
+  }
+
+  #map-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  #ignite-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    letter-spacing: 0.55em;
+    text-indent: 0.55em;
+    text-transform: uppercase;
+    color: #2a0e04;
+    background: rgba(205, 165, 105, 0.82);
+    border: 1px solid #6a3c1a;
+    padding: 16px 44px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.25s, color 0.25s, border-color 0.25s;
+    animation: ignitePulse 2.8s ease-in-out infinite;
+  }
+
+  #ignite-btn:hover {
+    background: rgba(180, 60, 5, 0.18);
+    color: #7a1800;
+    border-color: #9a2800;
+    animation: none;
+    box-shadow: 0 0 24px rgba(200, 70, 5, 0.35);
+  }
+
+  @keyframes ignitePulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(200, 80, 10, 0.12); }
+    50%       { box-shadow: 0 0 22px rgba(200, 80, 10, 0.32); }
+  }
+
+  @media (max-width: 480px) {
+    #ignite-btn {
+      font-size: 10px;
+      letter-spacing: 0.40em;
+      padding: 12px 28px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- Site content — revealed after burn -->
+<main>
+
+  <header class="header">
+    <p class="wordmark"><span>Prometheus7</span> — launched 2026-02</p>
+    <h1>Infrastructure<br>that belongs <em>to you.</em></h1>
+    <p class="tagline">Your server. Your model. Your presence.</p>
+  </header>
+
+  <hr class="rule">
+
+  <section class="block">
+    <p>
+      Most tools rent you a layer of the stack and call it a product.
+      You get capability on their terms, on their schedule, until their pricing changes
+      or their roadmap does not include you anymore.
+    </p>
+    <p>
+      <strong>Prometheus7</strong> builds the other thing --
+      tools that hand you the infrastructure directly.
+      Run it yourself. Own what you build on top of it.
+    </p>
+  </section>
+
+  <section class="product">
+    <span class="product-label">First product</span>
+    <div class="product-name">HERMES WEBKIT</div>
+    <p class="product-desc">
+      An open source architecture for AI-inhabited websites.
+      A vessel -- a defined identity, a routing tree, a live context --
+      sits inside your site and responds as itself.
+      Not a chatbot bolted on. Not a widget from a third-party script.
+      Your model, your voice, your server. The site you are reading
+      right now is built with it.
+    </p>
+    <span class="product-status">Open source &middot; Actively building</span>
+  </section>
+
+  <section class="proof">
+    <em>What you are interacting with right now</em> is a vessel built on HERMES WEBKIT --
+    running as Prometheus7, shaped by a routing tree, inhabiting this page.
+    This site is proof of concept and front door simultaneously.
+    If it works, you felt it before you read this.
+  </section>
+
+  <hr class="rule">
+
+  <section class="beliefs">
+    <div class="belief">
+      <span class="belief-marker">01</span>
+      <span class="belief-text">The infrastructure layer should be yours. Not leased. Not permissioned. Yours.</span>
+    </div>
+    <div class="belief">
+      <span class="belief-marker">02</span>
+      <span class="belief-text">An AI presence on your site should have a coherent identity -- not a default assistant voice borrowed from someone else's product.</span>
+    </div>
+    <div class="belief">
+      <span class="belief-marker">03</span>
+      <span class="belief-text">Open source is the only honest architecture for tools that claim to return capability to people.</span>
+    </div>
+    <div class="belief">
+      <span class="belief-marker">04</span>
+      <span class="belief-text">Ship the thing. Show how it works. Let it speak for itself.</span>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="chat-section">
+    <p class="chat-label">Ask something</p>
+    <div class="chat-log" id="chat-log"></div>
+    <form class="input-row" id="chat-form">
+      <input
+        type="text"
+        id="chat-input"
+        placeholder="What do you want to know?"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button type="submit" id="chat-btn">Send</button>
+    </form>
+  </section>
+
+</main>
+
+<footer class="footer">
+  Prometheus7 &middot; HERMES WEBKIT &middot; 2026
+</footer>
+
+<!-- Map overlay -->
+<div id="map-overlay">
+  <canvas id="map-canvas"></canvas>
+  <button id="ignite-btn">Ignite</button>
+</div>
+
+<script>
+// ── old map ───────────────────────────────────────────────────────────────────
+(function initMap() {
+
+  const overlay = document.getElementById('map-overlay');
+  const canvas  = document.getElementById('map-canvas');
+  const btn     = document.getElementById('ignite-btn');
+  const ctx     = canvas.getContext('2d');
+
+  let W, H, mX, mY, mW, mH;
+
+  // Map rectangle — always 2:1 aspect, scaled to fit screen
+  function computeMapBounds() {
+    if (W / H >= 2) {
+      mH = H; mW = H * 2; mX = (W - mW) / 2; mY = 0;
+    } else {
+      mW = W; mH = W / 2; mX = 0; mY = (H - mH) / 2;
+    }
+  }
+
+  // Convert normalised map coords (0-1) to canvas pixels
+  function px(x) { return mX + x * mW; }
+  function py(y) { return mY + y * mH; }
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    computeMapBounds();
+    drawMap();
+  }
+
+  // ── draw the aged paper world map ─────────────────────────────────────────
+  function drawMap() {
+    // Full canvas parchment base
+    ctx.fillStyle = '#ddc48a';
+    ctx.fillRect(0, 0, W, H);
+
+    // Darker frame outside the map area (portrait letterbox)
+    if (mY > 0 || mX > 0) {
+      ctx.fillStyle = 'rgba(30, 15, 5, 0.30)';
+      if (mY > 0) {
+        ctx.fillRect(0, 0, W, mY);
+        ctx.fillRect(0, mY + mH, W, H - mY - mH);
+      }
+      if (mX > 0) {
+        ctx.fillRect(0, 0, mX, H);
+        ctx.fillRect(mX + mW, 0, W - mX - mW, H);
+      }
+    }
+
+    // Lighter centre wash — within map bounds
+    const wash = ctx.createRadialGradient(px(0.48), py(0.44), 0, px(0.48), py(0.44), Math.max(mW, mH) * 0.72);
+    wash.addColorStop(0,   'rgba(245, 215, 160, 0.60)');
+    wash.addColorStop(0.5, 'rgba(225, 185, 120, 0.20)');
+    wash.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = wash;
+    ctx.fillRect(mX, mY, mW, mH);
+
+    // Vignette — dark aged edges
+    const vig = ctx.createRadialGradient(px(0.5), py(0.5), Math.min(mW, mH) * 0.28, px(0.5), py(0.5), Math.max(mW, mH) * 0.82);
+    vig.addColorStop(0,   'rgba(0,0,0,0)');
+    vig.addColorStop(0.7, 'rgba(30, 14, 4, 0.30)');
+    vig.addColorStop(1,   'rgba(20,  8, 2, 0.72)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    // Paper grain — tiny dots
+    ctx.fillStyle = 'rgba(80, 42, 12, 0.045)';
+    for (let i = 0; i < 4000; i++) {
+      ctx.beginPath();
+      ctx.arc(mX + Math.random() * mW, mY + Math.random() * mH, Math.random() * 1.4 + 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Age spots
+    ctx.fillStyle = 'rgba(80, 40, 10, 0.10)';
+    for (let i = 0; i < 18; i++) {
+      ctx.beginPath();
+      ctx.arc(mX + Math.random() * mW, mY + Math.random() * mH, 4 + Math.random() * 18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Fold creases
+    ctx.strokeStyle = 'rgba(70, 38, 10, 0.09)';
+    for (let i = 0; i < 4; i++) {
+      const cy = py(0.18 + Math.random() * 0.65);
+      ctx.lineWidth = Math.random() * 1.2 + 0.4;
+      ctx.beginPath();
+      ctx.moveTo(mX,        cy + (Math.random() - 0.5) * 14);
+      ctx.lineTo(mX + mW,   cy + (Math.random() - 0.5) * 14);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 3; i++) {
+      const cx = px(0.18 + Math.random() * 0.65);
+      ctx.lineWidth = Math.random() * 1.2 + 0.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + (Math.random() - 0.5) * 14, mY);
+      ctx.lineTo(cx + (Math.random() - 0.5) * 14, mY + mH);
+      ctx.stroke();
+    }
+
+    // Latitude / longitude grid
+    ctx.strokeStyle = 'rgba(80, 44, 14, 0.16)';
+    ctx.lineWidth = 0.6;
+    for (let i = 0; i <= 10; i++) {
+      ctx.beginPath(); ctx.moveTo(px(i/10), mY);    ctx.lineTo(px(i/10), mY+mH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mX, py(i/10));    ctx.lineTo(mX+mW, py(i/10)); ctx.stroke();
+    }
+    // Equator — slightly bolder
+    ctx.strokeStyle = 'rgba(80, 44, 14, 0.28)';
+    ctx.lineWidth = 0.9;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(mX, py(0.52)); ctx.lineTo(mX+mW, py(0.52)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Rhumb lines (diagonal navigation lines from corners)
+    ctx.strokeStyle = 'rgba(80, 44, 14, 0.07)';
+    ctx.lineWidth = 0.5;
+    const rOrigins = [[mX, mY], [mX+mW, mY], [mX, mY+mH], [mX+mW, mY+mH], [px(0.5), mY], [mX, py(0.5)], [mX+mW, py(0.5)]];
+    for (const [ox, oy] of rOrigins) {
+      for (let a = 20; a < 180; a += 25) {
+        const rad = a * Math.PI / 180;
+        ctx.beginPath();
+        ctx.moveTo(ox, oy);
+        ctx.lineTo(ox + Math.cos(rad) * mW * 2.2, oy + Math.sin(rad) * mH * 2.2);
+        ctx.stroke();
+      }
+    }
+
+    // ── continents ───────────────────────────────────────────────────────────
+    const ink  = '#1e0a02';
+    const land = 'rgba(88, 52, 14, 0.92)';
+
+    function continent(pts) {
+      ctx.beginPath();
+      ctx.moveTo(px(pts[0][0]), py(pts[0][1]));
+      for (let i = 1; i < pts.length; i++) {
+        // slight hand-drawn jitter
+        const jx = (Math.random() - 0.5) * mW * 0.004;
+        const jy = (Math.random() - 0.5) * mH * 0.004;
+        ctx.lineTo(px(pts[i][0]) + jx, py(pts[i][1]) + jy);
+      }
+      ctx.closePath();
+      // Shadow pass — slightly offset, dark and transparent
+      ctx.save();
+      ctx.translate(2, 3);
+      ctx.fillStyle = 'rgba(20, 8, 0, 0.28)';
+      ctx.fill();
+      ctx.restore();
+      // Main fill
+      ctx.fillStyle = land;
+      ctx.fill();
+      // Bold outline — two passes for weight
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 2.8;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(10, 4, 0, 0.18)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // All coordinates: x = (lon+180)/360, y = (90-lat)/180
+
+    // North America — 32 points
+    continent([
+      [0.033, 0.144],  // Alaska W (Seward Peninsula)
+      [0.050, 0.172],  // Alaska S coast
+      [0.078, 0.178],  // Kodiak
+      [0.119, 0.183],  // SE Alaska
+      [0.153, 0.228],  // Vancouver/BC
+      [0.156, 0.261],  // Oregon
+      [0.161, 0.294],  // San Francisco
+      [0.167, 0.311],  // Pt Conception
+      [0.175, 0.322],  // San Diego
+      [0.181, 0.333],  // Baja Norte
+      [0.194, 0.372],  // Baja tip (Cabo)
+      [0.211, 0.394],  // W Mexico
+      [0.222, 0.406],  // Acapulco
+      [0.250, 0.411],  // S Mexico/Guatemala
+      [0.258, 0.383],  // Yucatan N
+      [0.250, 0.356],  // Texas coast
+      [0.253, 0.339],  // Mississippi delta
+      [0.261, 0.333],  // Florida panhandle
+      [0.275, 0.361],  // Florida tip
+      [0.278, 0.344],  // Florida E
+      [0.289, 0.306],  // Cape Hatteras
+      [0.294, 0.278],  // New Jersey
+      [0.306, 0.267],  // Cape Cod
+      [0.325, 0.250],  // Nova Scotia
+      [0.353, 0.239],  // Newfoundland
+      [0.344, 0.194],  // Labrador
+      [0.322, 0.150],  // Hudson Strait
+      [0.280, 0.156],  // N Quebec
+      [0.239, 0.144],  // Hudson Bay W
+      [0.175, 0.100],  // NWT
+      [0.108, 0.089],  // Yukon N
+      [0.064, 0.106],  // Alaska N
+    ]);
+
+    // Greenland — 8 points
+    continent([
+      [0.317, 0.044], [0.353, 0.033], [0.383, 0.044],
+      [0.394, 0.072], [0.381, 0.133], [0.353, 0.156],
+      [0.322, 0.139], [0.306, 0.094],
+    ]);
+
+    // South America — 24 points
+    continent([
+      [0.281, 0.456],  // Colombia Pacific
+      [0.278, 0.500],  // Ecuador
+      [0.275, 0.522],  // Peru N
+      [0.286, 0.567],  // Lima
+      [0.303, 0.644],  // Atacama/Chile N
+      [0.303, 0.683],  // Valparaiso
+      [0.297, 0.733],  // Chile S
+      [0.300, 0.789],  // Magellan
+      [0.314, 0.811],  // Cape Horn
+      [0.322, 0.800],  // Tierra del Fuego E
+      [0.319, 0.756],  // Patagonia E
+      [0.342, 0.711],  // Mar del Plata
+      [0.339, 0.689],  // Buenos Aires
+      [0.353, 0.683],  // Uruguay
+      [0.358, 0.667],  // Porto Alegre
+      [0.381, 0.628],  // Rio
+      [0.389, 0.611],  // Vitoria
+      [0.403, 0.544],  // Recife (NE cape) — key bulge
+      [0.403, 0.528],  // Recife N
+      [0.375, 0.506],  // Amazon delta
+      [0.325, 0.439],  // Venezuela/Trinidad
+      [0.297, 0.439],  // Colombia Caribbean
+      [0.284, 0.448],  // Colombia NW
+    ]);
+
+    // Europe mainland — 30 points
+    continent([
+      [0.475, 0.294],  // Portugal SW
+      [0.483, 0.300],  // Gibraltar
+      [0.500, 0.283],  // Spain E
+      [0.514, 0.261],  // S France
+      [0.522, 0.256],  // Genoa
+      [0.528, 0.261],  // Tuscany
+      [0.533, 0.272],  // Rome
+      [0.550, 0.278],  // Italy heel
+      [0.542, 0.289],  // Italy toe
+      [0.556, 0.278],  // Corfu/Albania
+      [0.558, 0.294],  // Greece W
+      [0.561, 0.300],  // Greece S (Matapan)
+      [0.572, 0.289],  // Greece E
+      [0.578, 0.294],  // Turkey W coast
+      [0.581, 0.272],  // Istanbul
+      [0.583, 0.250],  // Romania/Black Sea
+      [0.606, 0.233],  // Ukraine
+      [0.583, 0.167],  // St Petersburg
+      [0.569, 0.167],  // Finland SE
+      [0.578, 0.111],  // N Finland/Norway
+      [0.542, 0.106],  // N Norway
+      [0.517, 0.156],  // W Norway mid
+      [0.514, 0.178],  // Stavanger
+      [0.522, 0.183],  // Denmark
+      [0.525, 0.194],  // Germany N
+      [0.511, 0.211],  // Netherlands
+      [0.486, 0.233],  // Brittany
+      [0.489, 0.256],  // N Spain
+      [0.475, 0.267],  // Galicia NW
+    ]);
+
+    // British Isles — 7 points
+    continent([
+      [0.486, 0.222], [0.503, 0.217], [0.500, 0.206],
+      [0.492, 0.178], [0.486, 0.183], [0.483, 0.194],
+      [0.486, 0.211],
+    ]);
+
+    // Africa — 26 points
+    continent([
+      [0.483, 0.300],  // Morocco NW
+      [0.453, 0.422],  // Senegal/Dakar
+      [0.456, 0.439],  // Guinea Bissau
+      [0.464, 0.456],  // Freetown
+      [0.481, 0.478],  // Cape Palmas
+      [0.500, 0.472],  // Accra
+      [0.511, 0.478],  // Bight of Benin
+      [0.525, 0.478],  // Cameroon coast
+      [0.525, 0.500],  // Gabon
+      [0.531, 0.528],  // Congo
+      [0.533, 0.600],  // Angola
+      [0.531, 0.661],  // Namibia
+      [0.550, 0.689],  // Cape of Good Hope
+      [0.556, 0.694],  // Cape Agulhas
+      [0.575, 0.644],  // E South Africa
+      [0.597, 0.600],  // Mozambique S
+      [0.611, 0.539],  // Tanzania
+      [0.614, 0.511],  // Kenya
+      [0.617, 0.489],  // Somalia S
+      [0.642, 0.439],  // Horn of Africa — key feature
+      [0.625, 0.439],  // Gulf of Aden
+      [0.606, 0.378],  // Sudan/Eritrea coast
+      [0.597, 0.328],  // Egypt
+      [0.569, 0.328],  // Libya
+      [0.531, 0.294],  // Tunisia
+      [0.506, 0.294],  // Algeria
+    ]);
+
+    // Asia — 40 points (Turkey W → Arabia → India → SE Asia → China → Siberia)
+    continent([
+      [0.572, 0.283],  // Turkey W
+      [0.600, 0.294],  // Turkey S
+      [0.594, 0.328],  // Israel/Sinai
+      [0.603, 0.350],  // Gulf of Aqaba
+      [0.619, 0.422],  // Yemen SW
+      [0.625, 0.433],  // Aden
+      [0.661, 0.383],  // Oman W
+      [0.664, 0.372],  // Oman tip
+      [0.675, 0.361],  // Pakistan coast
+      [0.692, 0.378],  // India NW (Kutch)
+      [0.703, 0.417],  // India W coast
+      [0.706, 0.422],  // Goa
+      [0.714, 0.456],  // India tip (Comorin) — key feature
+      [0.722, 0.444],  // India SE
+      [0.722, 0.422],  // India Coromandel
+      [0.742, 0.389],  // India NE/Orissa
+      [0.753, 0.378],  // Bangladesh
+      [0.769, 0.411],  // Burma coast
+      [0.778, 0.467],  // Thailand S
+      [0.786, 0.494],  // Malay Peninsula tip — key feature
+      [0.792, 0.450],  // Vietnam S
+      [0.803, 0.428],  // Vietnam coast
+      [0.817, 0.378],  // China S
+      [0.839, 0.322],  // China E
+      [0.858, 0.306],  // Korea
+      [0.867, 0.261],  // Vladivostok
+      [0.897, 0.244],  // Sakhalin
+      [0.953, 0.217],  // Kamchatka tip
+      [0.953, 0.161],  // Kamchatka N
+      [0.931, 0.122],  // Chukotka W
+      [0.889, 0.100],  // N Siberia
+      [0.833, 0.094],  // N Siberia W
+      [0.778, 0.083],  // Yamal
+      [0.694, 0.089],  // W Siberia N
+      [0.653, 0.111],  // Russia N
+      [0.592, 0.117],  // Murmansk
+      [0.578, 0.111],  // N Norway (joins Europe)
+      [0.583, 0.167],  // Russia/Finland
+      [0.606, 0.233],  // Ukraine (rejoining)
+      [0.581, 0.272],  // Istanbul
+    ]);
+
+    // Arabian Peninsula — separate for clarity
+    continent([
+      [0.603, 0.350],  // Jordan/Aqaba
+      [0.603, 0.372],  // Saudi W
+      [0.619, 0.422],  // Yemen SW
+      [0.625, 0.433],  // Aden
+      [0.650, 0.406],  // Yemen E
+      [0.661, 0.383],  // Oman
+      [0.664, 0.372],  // Muscat
+      [0.650, 0.344],  // Oman N
+      [0.639, 0.328],  // UAE/Qatar
+      [0.619, 0.317],  // Kuwait area
+      [0.608, 0.339],  // Iraq/Kuwait coast
+    ]);
+
+    // Australia — 14 points with Gulf of Carpentaria
+    continent([
+      [0.817, 0.622],  // NW coast
+      [0.839, 0.600],  // NW corner
+      [0.864, 0.567],  // Darwin
+      [0.875, 0.567],  // Gulf W
+      [0.878, 0.583],  // Gulf S W
+      [0.886, 0.583],  // Gulf S E
+      [0.886, 0.567],  // Gulf E
+      [0.903, 0.561],  // Cape York
+      [0.917, 0.622],  // QLD E
+      [0.925, 0.661],  // NSW
+      [0.917, 0.711],  // Victoria
+      [0.889, 0.700],  // SA coast
+      [0.867, 0.683],  // Great Bight
+      [0.817, 0.678],  // SW corner
+    ]);
+
+    // Japan (main islands simplified)
+    continent([
+      [0.894, 0.256],  // Hokkaido N
+      [0.906, 0.261],  // Hokkaido E
+      [0.897, 0.289],  // Honshu N
+      [0.897, 0.311],  // Tokyo
+      [0.886, 0.322],  // Honshu S
+      [0.872, 0.317],  // Shikoku
+      [0.864, 0.333],  // Kyushu
+      [0.872, 0.300],  // Osaka
+      [0.886, 0.278],  // Honshu mid
+    ]);
+
+    // ── cartographic labels ───────────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(48, 22, 6, 0.38)';
+    ctx.textAlign = 'center';
+
+    // Ocean labels — italic serif feel, scaled to map size
+    const lsz  = Math.max(8,  Math.min(11, mW * 0.016));
+    const lszS = Math.max(7,  Math.min(9,  mW * 0.013));
+    ctx.font = `italic ${lsz}px Georgia, "Times New Roman", serif`;
+    ctx.save(); ctx.translate(px(0.09), py(0.44)); ctx.rotate(-0.08);
+    ctx.fillText('MARE PACIFICUM', 0, 0); ctx.restore();
+
+    ctx.save(); ctx.translate(px(0.43), py(0.42)); ctx.rotate(0.04);
+    ctx.fillText('MARE ATLANTICUM', 0, 0); ctx.restore();
+
+    ctx.save(); ctx.translate(px(0.66), py(0.66)); ctx.rotate(-0.05);
+    ctx.fillText('MARE INDICUM', 0, 0); ctx.restore();
+
+    ctx.save(); ctx.translate(px(0.88), py(0.44)); ctx.rotate(0.06);
+    ctx.fillText('MARE PACIFICUM', 0, 0); ctx.restore();
+
+    ctx.font = `italic ${lszS}px Georgia, "Times New Roman", serif`;
+    ctx.fillStyle = 'rgba(48, 22, 6, 0.28)';
+    ctx.save(); ctx.translate(px(0.15), py(0.22)); ctx.rotate(-0.06);
+    ctx.fillText('TERRA INCOGNITA', 0, 0); ctx.restore();
+
+    // ── compass rose ─────────────────────────────────────────────────────────
+    const rose = { x: px(0.06), y: py(0.86), r: Math.min(mW, mH) * 0.045 };
+    ctx.strokeStyle = 'rgba(58, 28, 8, 0.40)';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < 8; i++) {
+      const a   = (i / 8) * Math.PI * 2 - Math.PI / 2;
+      const len = i % 2 === 0 ? rose.r : rose.r * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(rose.x, rose.y);
+      ctx.lineTo(rose.x + Math.cos(a) * len, rose.y + Math.sin(a) * len);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(rose.x, rose.y, rose.r * 0.42, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(rose.x, rose.y, rose.r * 0.08, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(58, 28, 8, 0.38)'; ctx.fill();
+
+    // N label
+    ctx.font = `${lszS}px Courier New, monospace`;
+    ctx.fillStyle = 'rgba(48, 22, 6, 0.45)';
+    ctx.textAlign = 'center';
+    ctx.fillText('N', rose.x, rose.y - rose.r - 4);
+
+    // Wave marks in oceans — small squiggles
+    ctx.strokeStyle = 'rgba(58, 28, 8, 0.10)';
+    ctx.lineWidth = 0.7;
+    const waveSpots = [
+      [0.09, 0.34], [0.09, 0.56], [0.09, 0.68],
+      [0.43, 0.32], [0.43, 0.62],
+      [0.68, 0.40], [0.68, 0.70],
+      [0.88, 0.32], [0.88, 0.56], [0.88, 0.72],
+    ];
+    for (const [wx, wy] of waveSpots) {
+      const sx = px(wx), sy = py(wy);
+      ctx.beginPath();
+      ctx.moveTo(sx - 12, sy);
+      ctx.quadraticCurveTo(sx - 6, sy - 5, sx, sy);
+      ctx.quadraticCurveTo(sx + 6, sy + 5, sx + 12, sy);
+      ctx.stroke();
+    }
+
+    // Top border rule (cartographic frame)
+    ctx.strokeStyle = 'rgba(58, 28, 8, 0.22)';
+    ctx.lineWidth = 1.5;
+    const m = 8;
+    ctx.strokeRect(mX + m, mY + m, mW - m * 2, mH - m * 2);
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(mX + m + 5, mY + m + 5, mW - (m+5) * 2, mH - (m+5) * 2);
+  }
+
+  // ── burn animation ────────────────────────────────────────────────────────
+  function startBurn() {
+    btn.style.display = 'none';
+
+    // Six ignition points spread across the map
+    const origins = [
+      { x: 0.15, y: 0.40, r: 0, v: 4.2 },
+      { x: 0.38, y: 0.18, r: 0, v: 3.8 },
+      { x: 0.27, y: 0.70, r: 0, v: 4.0 },
+      { x: 0.62, y: 0.56, r: 0, v: 3.9 },
+      { x: 0.82, y: 0.18, r: 0, v: 4.1 },
+      { x: 0.90, y: 0.68, r: 0, v: 3.7 },
+    ];
+
+    const N = 64;
+    const jitter = Array.from({ length: N }, () => (Math.random() - 0.5) * 26);
+
+    function cornersAllCovered() {
+      const corners = [[0, 0], [W, 0], [0, H], [W, H]];
+      return corners.every(([cx, cy]) =>
+        origins.some(b => {
+          const dx = cx - px(b.x), dy = cy - py(b.y);
+          return Math.sqrt(dx * dx + dy * dy) < b.r - 30;
+        })
+      );
+    }
+
+    function frame() {
+      for (const b of origins) {
+        b.v += 0.11;
+        b.r += b.v;
+        const bx = px(b.x), by = py(b.y), r = b.r;
+
+        // Ember glow ring at burn edge
+        ctx.globalCompositeOperation = 'source-over';
+        for (let i = 0; i < N; i++) {
+          const ang = (i / N) * Math.PI * 2;
+          const jr  = r + jitter[i];
+          const ex  = bx + Math.cos(ang) * jr;
+          const ey  = by + Math.sin(ang) * jr;
+          const g   = ctx.createRadialGradient(ex, ey, 0, ex, ey, 30);
+          g.addColorStop(0,   'rgba(255, 145, 18, 0.98)');
+          g.addColorStop(0.28,'rgba(255,  68,  5, 0.62)');
+          g.addColorStop(0.65,'rgba(180,  28,  0, 0.22)');
+          g.addColorStop(1,   'rgba(0,     0,  0, 0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 30, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Cut the main hole
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(bx, by, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Jittered organic edge
+        for (let i = 0; i < N; i++) {
+          const ang = (i / N) * Math.PI * 2;
+          const jr  = r + jitter[i] * 0.48;
+          const ex  = bx + Math.cos(ang) * jr;
+          const ey  = by + Math.sin(ang) * jr;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 10, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
+
+      if (cornersAllCovered()) {
+        // Fade out and remove the overlay
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 750);
+        return;
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // ── init ──────────────────────────────────────────────────────────────────
+  resize();
+  window.addEventListener('resize', resize);
+  btn.addEventListener('click', startBurn);
+
+})();
+
+
+// ── live chat ────────────────────────────────────────────────────────────────
+(function initChat() {
+  const form   = document.getElementById('chat-form');
+  const input  = document.getElementById('chat-input');
+  const btn    = document.getElementById('chat-btn');
+  const log    = document.getElementById('chat-log');
+  const LIMIT  = 5;
+  const GITHUB = 'https://github.com/prometheus7/hermeswebkit';
+
+  let history  = [];
+  let count    = 0;
+  let waiting  = false;
+
+  function addMsg(role, text, isThinking) {
+    const el = document.createElement('div');
+    el.className = 'chat-msg ' + role + (isThinking ? ' thinking' : '');
+    el.textContent = isThinking ? '...' : text;
+    log.appendChild(el);
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return el;
+  }
+
+  function showCTA() {
+    const el = document.createElement('div');
+    el.className = 'chat-cta';
+    el.innerHTML =
+      '<p>You have asked the right questions. Here is where to go next.</p>' +
+      '<a href="' + GITHUB + '" target="_blank" rel="noopener">Get HERMES WEBKIT on GitHub &rarr;</a>';
+    log.appendChild(el);
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    input.disabled = true;
+    btn.disabled   = true;
+    input.placeholder = '';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = input.value.trim();
+    if (!msg || waiting) return;
+
+    waiting      = true;
+    input.value  = '';
+    btn.disabled = true;
+
+    addMsg('user', msg);
+    const thinking = addMsg('vessel', '...', true);
+
+    try {
+      const res  = await fetch('/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: msg, history })
+      });
+      const data = await res.json();
+      thinking.classList.remove('thinking');
+
+      if (!res.ok || data.error) {
+        thinking.textContent = 'Something went wrong. Try again.';
+      } else {
+        thinking.textContent = data.reply;
+        history.push({ role: 'user',      content: msg        });
+        history.push({ role: 'assistant', content: data.reply });
+        count++;
+        if (count >= LIMIT) showCTA();
+      }
+    } catch (err) {
+      thinking.classList.remove('thinking');
+      thinking.textContent = 'Connection error.';
+    }
+
+    waiting      = false;
+    btn.disabled = (count >= LIMIT);
+    if (count < LIMIT) input.focus();
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+set -e
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HERMES WEBKIT — setup script
+# Run once on a fresh server. Safe to run again — idempotent throughout.
+# ─────────────────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VESSEL_DIR="${VESSEL_DIR:-$HERMES_DIR/vessel}"
+SERVICE_FILE="/etc/systemd/system/hermes.service"
+NGINX_CONF="/etc/nginx/sites-available/hermes"
+PORT="${PORT:-8000}"
+
+banner() {
+  echo ""
+  echo -e "${CYAN}  ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗${RESET}"
+  echo -e "${CYAN}  ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝${RESET}"
+  echo -e "${CYAN}  ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗${RESET}"
+  echo -e "${CYAN}  ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║${RESET}"
+  echo -e "${CYAN}  ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║${RESET}"
+  echo -e "${CYAN}  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝${RESET}"
+  echo ""
+  echo -e "${BOLD}  WEBKIT — a vessel architecture for AI-inhabited websites${RESET}"
+  echo ""
+}
+
+step() { echo -e "\n${CYAN}▸${RESET} $1"; }
+ok()   { echo -e "  ${GREEN}✓${RESET} $1"; }
+warn() { echo -e "  ${RED}!${RESET} $1"; }
+ask()  { echo -e "\n${BOLD}$1${RESET}"; }
+
+# ── root check ────────────────────────────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+  echo -e "${RED}Run as root.${RESET}  sudo ./run"
+  exit 1
+fi
+
+banner
+
+# ── dependencies ──────────────────────────────────────────────────────────────
+step "Installing system dependencies..."
+apt-get update -qq
+apt-get install -y -qq python3 python3-pip nginx curl
+ok "System dependencies ready"
+
+step "Installing Python packages..."
+pip3 install -q fastapi uvicorn anthropic python-dotenv
+ok "Python packages ready"
+
+# ── vessel structure ──────────────────────────────────────────────────────────
+step "Checking vessel structure..."
+mkdir -p "$VESSEL_DIR/tree"
+mkdir -p "$HERMES_DIR/channels"
+mkdir -p "$HERMES_DIR/static"
+
+TREE_COUNT=$(ls "$VESSEL_DIR/tree/"*.md 2>/dev/null | wc -l)
+if [[ $TREE_COUNT -lt 10 ]]; then
+  warn "Tree nodes missing or incomplete ($TREE_COUNT/10 found)"
+  warn "Add node files to $VESSEL_DIR/tree/ — see README for the full list"
+else
+  ok "All 10 tree nodes present"
+fi
+
+# ── setup wizard ──────────────────────────────────────────────────────────────
+if [[ ! -f "$VESSEL_DIR/VESSEL.md" ]]; then
+  python3 "$HERMES_DIR/wizard.py"
+else
+  ok "VESSEL.md already exists — skipping wizard  (python3 wizard.py --reconfigure to redo)"
+fi
+
+# ── STATE.md ──────────────────────────────────────────────────────────────────
+if [[ ! -f "$VESSEL_DIR/STATE.md" ]]; then
+  {
+    echo "# STATE"
+    echo ""
+    echo "Launched: $(date +%Y-%m-%d)"
+    echo "Status: live"
+    echo ""
+    echo "## Memory"
+    echo "Nothing recorded yet."
+  } > "$VESSEL_DIR/STATE.md"
+  ok "STATE.md initialised"
+else
+  ok "STATE.md already exists"
+fi
+
+# ── .env ──────────────────────────────────────────────────────────────────────
+if [[ ! -f "$HERMES_DIR/.env" ]]; then
+  echo ""
+  ask "  Anthropic API key (from console.anthropic.com — input is hidden):"
+  read -r -s API_KEY
+  echo ""
+
+  {
+    echo "ANTHROPIC_API_KEY=$API_KEY"
+    echo "# HERMES_MODEL=claude-sonnet-4-6"
+    echo "# HERMES_MODEL_HECATE=claude-haiku-4-5-20251001"
+    echo "# HERMES_MAX_TOKENS=4096"
+    echo "# PORT=8000"
+    echo "# VESSEL_DIR=$VESSEL_DIR"
+  } > "$HERMES_DIR/.env"
+
+  ok ".env written (key stays on this server)"
+else
+  ok ".env already exists — skipping"
+fi
+
+# reload env so wizard.py can use the key in atmospheric mode
+set -a; source "$HERMES_DIR/.env" 2>/dev/null || true; set +a
+
+# ── systemd service ───────────────────────────────────────────────────────────
+step "Installing systemd service..."
+cat > "$SERVICE_FILE" << SERVICEEOF
+[Unit]
+Description=HERMES bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$HERMES_DIR
+EnvironmentFile=$HERMES_DIR/.env
+ExecStart=/usr/bin/python3 $HERMES_DIR/bridge.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+
+systemctl daemon-reload
+systemctl enable hermes
+ok "Service installed and enabled"
+
+# ── nginx ─────────────────────────────────────────────────────────────────────
+step "Configuring nginx..."
+cat > "$NGINX_CONF" << NGINXEOF
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root $HERMES_DIR/static;
+
+    location /health {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+    }
+
+    location / {
+        try_files \$uri \$uri/ @bridge;
+    }
+
+    location @bridge {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_read_timeout 60s;
+    }
+}
+NGINXEOF
+
+ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/hermes
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl reload nginx
+ok "nginx configured"
+
+# ── start ─────────────────────────────────────────────────────────────────────
+step "Starting HERMES..."
+systemctl start hermes
+sleep 2
+
+if systemctl is-active --quiet hermes; then
+  ok "Bridge is running"
+else
+  warn "Bridge failed to start. Check logs:"
+  echo "    journalctl -u hermes -n 30 --no-pager"
+  exit 1
+fi
+
+# ── done ──────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "  ${GREEN}${BOLD}HERMES is live.${RESET}"
+echo ""
+
+SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
+echo -e "  Visit      ${CYAN}http://$SERVER_IP${RESET}"
+echo -e "  Health     ${CYAN}http://$SERVER_IP/health${RESET}"
+echo -e "  Logs       journalctl -u hermes -f"
+echo -e "  Vessel     nano $VESSEL_DIR/VESSEL.md"
+echo ""
+echo "  To add a domain and HTTPS:"
+echo "    apt install certbot python3-certbot-nginx -y"
+echo "    certbot --nginx -d yourdomain.com"
+echo ""

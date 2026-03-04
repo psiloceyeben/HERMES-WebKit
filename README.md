@@ -8,7 +8,7 @@ Natural language in. Live website out. One command to deploy. Any LLM. Your serv
 
 **npx** (any OS with Node.js):
 ```
-npx hermes-webkit
+npx github:psiloceyeben/HERMES-WebKit
 ```
 
 **Windows** (PowerShell, no Node required):

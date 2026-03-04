@@ -6,12 +6,17 @@ Natural language in. Live website out. One command to deploy. Any LLM. Your serv
 
 ### Install
 
-**Windows** (PowerShell):
+**npx** (any OS with Node.js):
+```
+npx hermes-webkit
+```
+
+**Windows** (PowerShell, no Node required):
 ```powershell
 irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps1 | iex
 ```
 
-**Linux** (on a fresh server):
+**Linux** (on a fresh server, no Node required):
 ```bash
 curl -sL https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/run | sudo bash
 ```

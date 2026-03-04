@@ -1,0 +1,15 @@
+{
+  "name": "hermes-webkit",
+  "version": "0.2.0",
+  "description": "A vessel architecture for AI-inhabited websites",
+  "bin": {
+    "hermes-webkit": "./cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/psiloceyeben/HERMES-WebKit"
+  },
+  "keywords": ["ai", "website", "generator", "vessel", "hermes"],
+  "author": "Prometheus7",
+  "license": "MIT"
+}

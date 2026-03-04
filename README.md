@@ -4,6 +4,20 @@
 
 Natural language in. Live website out. One command to deploy. Any LLM. Your server. Your data.
 
+### Install
+
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps1 | iex
+```
+
+**Linux** (on a fresh server):
+```bash
+curl -sL https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/run | sudo bash
+```
+
+One line. Four prompts. Live website.
+
 ---
 
 ## What this is

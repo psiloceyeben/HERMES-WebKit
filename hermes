@@ -2,7 +2,6 @@
 # HERMES — command-line interface
 
 THEME_FILE="/root/hermes/.hermes_theme.json"
-BRIDGE="http://127.0.0.1:8000"
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -11,9 +10,25 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
 
-# Load operator token from .env (works for main site and any site)
-_ENV_FILE="${HERMES_ENV:-/root/hermes/.env}"
-BUILD_TOKEN=$(python3 -c "
+# ── resolve which site to talk to ─────────────────────────────────────────────
+# hermes chat          → main site
+# hermes chat myblog   → vessels/myblog
+# HERMES_ENV=...       → explicit env override
+_resolve_site() {
+  local name="${1:-}"
+  if [[ -n "$name" && "$name" != "main" ]]; then
+    _ENV_FILE="/root/hermes/vessels/$name/.env"
+    if [[ ! -f "$_ENV_FILE" ]]; then
+      echo -e "\n  ${RED}error:${RESET} site '$name' not found — run: hermes sites\n"
+      exit 1
+    fi
+    _SITE_LABEL="$name"
+  else
+    _ENV_FILE="${HERMES_ENV:-/root/hermes/.env}"
+    _SITE_LABEL="main"
+  fi
+
+  BUILD_TOKEN=$(python3 -c "
 import re, os
 env = '$_ENV_FILE'
 if os.path.exists(env):
@@ -22,15 +37,26 @@ if os.path.exists(env):
         if m: print(m.group(1).strip('\"').strip(\"'\")); break
 " 2>/dev/null)
 
-if [[ -z "$BUILD_TOKEN" ]]; then
-  echo -e "\n  ${RED}error:${RESET} BUILD_TOKEN not set in $_ENV_FILE"
-  echo -e "  Add BUILD_TOKEN=your-secret-token to .env and run: hermes restart\n"
-  exit 1
-fi
+  if [[ -z "$BUILD_TOKEN" ]]; then
+    echo -e "\n  ${RED}error:${RESET} BUILD_TOKEN not set in $_ENV_FILE"
+    echo -e "  Add BUILD_TOKEN=your-secret-token to .env and run: hermes restart\n"
+    exit 1
+  fi
 
-# Allow overriding which port the CLI talks to (for secondary sites)
-_PORT="${HERMES_PORT:-8000}"
-BRIDGE="http://127.0.0.1:$_PORT"
+  _PORT=$(python3 -c "
+import re, os
+env = '$_ENV_FILE'
+if os.path.exists(env):
+    for line in open(env):
+        m = re.match(r'HERMES_PORT=(.+)', line.strip())
+        if m: print(m.group(1).strip()); break
+" 2>/dev/null)
+  _PORT="${_PORT:-8000}"
+  BRIDGE="http://127.0.0.1:$_PORT"
+}
+
+# Default: resolve main site immediately (commands that don't take a site name)
+_resolve_site ""
 
 color_code() {
   case "$1" in
@@ -305,10 +331,11 @@ CMD="${1:-}"
 case "$CMD" in
 
   chat)
+    _resolve_site "${2:-}"
     load_theme
     banner
     SESSION_ID=$(python3 -c "import uuid; print(str(uuid.uuid4())[:8])")
-    echo -e "  ${ACCENT}▸${RESET} ${VESSEL_LABEL} is listening  ${DIM}session: $SESSION_ID${RESET}"
+    echo -e "  ${ACCENT}▸${RESET} ${VESSEL_LABEL} is listening  ${DIM}$_SITE_LABEL · session: $SESSION_ID${RESET}"
     echo -e "  ${DIM}ask anything · ask to build features · ask to restyle · type exit to leave${RESET}"
     echo ""
 
@@ -356,13 +383,24 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     ;;
 
   status)
-    banner; systemctl status hermes --no-pager
+    SITE_NAME="${2:-}"
+    banner
+    if [[ -n "$SITE_NAME" && "$SITE_NAME" != "main" ]]; then
+      systemctl status "hermes-$SITE_NAME" --no-pager
+    else
+      systemctl status hermes --no-pager
+    fi
     ;;
 
   logs)
+    SITE_NAME="${2:-}"
     banner
     echo -e "  ${DIM}streaming logs — ctrl+c to exit${RESET}\n"
-    journalctl -u hermes -f --no-pager
+    if [[ -n "$SITE_NAME" && "$SITE_NAME" != "main" ]]; then
+      journalctl -u "hermes-$SITE_NAME" -f --no-pager
+    else
+      journalctl -u hermes -f --no-pager
+    fi
     ;;
 
   build)
@@ -645,7 +683,8 @@ NGEOF
   *)
     banner
     echo -e "  ${BOLD}commands:${RESET}\n"
-    echo -e "  ${ACCENT}hermes chat${RESET}                     open the operator terminal"
+    echo -e "  ${ACCENT}hermes chat${RESET}                      open the operator terminal (main site)"
+    echo -e "  ${ACCENT}hermes chat <name>${RESET}              open terminal for a specific vessel"
     echo -e "  ${ACCENT}hermes sites${RESET}                    list all vessels on this server"
     echo -e "  ${ACCENT}hermes new${RESET}                      rebuild this vessel from scratch"
     echo -e "  ${ACCENT}hermes new-site <name>${RESET}          create a new vessel (runs wizard)"
@@ -653,8 +692,8 @@ NGEOF
     echo -e "  ${ACCENT}hermes add-domain <name> <domain>${RESET}attach a domain to an existing site"
     echo -e "  ${ACCENT}hermes theme${RESET}                    show current terminal theme"
     echo -e "  ${ACCENT}hermes theme-reset${RESET}              reset to default style"
-    echo -e "  ${ACCENT}hermes status${RESET}                   service status"
-    echo -e "  ${ACCENT}hermes logs${RESET}                     live log stream"
+    echo -e "  ${ACCENT}hermes status [name]${RESET}            service status"
+    echo -e "  ${ACCENT}hermes logs [name]${RESET}              live log stream"
     echo -e "  ${ACCENT}hermes build${RESET}                    rebuild the static site"
     echo -e "  ${ACCENT}hermes restart${RESET}                  restart the bridge"
     echo ""

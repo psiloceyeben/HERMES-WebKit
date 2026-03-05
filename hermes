@@ -395,6 +395,8 @@ setw -g mode-keys vi
 TMUXEOF
 
     if tmux -f "$TMUX_CONF" has-session -t "$SESSION" 2>/dev/null; then
+      # Push mouse setting into the existing session (in case it was created before this fix)
+      tmux set-option -t "$SESSION" -g mouse on 2>/dev/null || true
       tmux -f "$TMUX_CONF" attach-session -t "$SESSION"
     else
       # New session: left pane = chat, right pane = shell

@@ -96,7 +96,7 @@ The installer prompts for your Hetzner API key, Anthropic API key, and optional 
 If you already have a VPS and want to install directly:
 
 ```bash
-git clone https://github.com/prometheus7/hermeswebkit /root/hermes
+git clone https://github.com/psiloceyeben/HERMES-WebKit /root/hermes
 cd /root/hermes
 sudo ./run
 ```
@@ -231,7 +231,8 @@ Endpoints:
 - `GET /setup` -- the browser-based setup wizard
 - `POST /setup` -- writes VESSEL.md from wizard input
 - `POST /build` -- triggers a rebuild through the tree
-- `POST /chat` -- optional visitor chat (one API call per message)
+- `POST /chat` -- operator terminal: full agentic conversation with file read/write and shell access (session-aware, requires confirmation for writes and commands)
+- `POST /chat/confirm` -- execute or cancel pending write/run actions from the operator terminal
 - `POST /agent` -- spawn a background agent task (see below)
 - `GET /agent/{id}` -- check agent status and result
 - `GET /agents` -- list all agent tasks
@@ -312,6 +313,7 @@ hermeswebkit/
   bridge.py              the FastAPI bridge -- the only code in the system
   install.ps1            PowerShell installer -- four inputs to a live site
   run                    bash setup script for Linux servers
+  hermes                 operator CLI -- talk to the vessel from the terminal
   .env.example           template for environment variables
   .gitignore
   README.md
@@ -342,6 +344,69 @@ Files generated at install time (not committed):
 - `vessel/VESSEL.md` -- the site identity (written by the wizard or by hand)
 - `vessel/STATE.md` -- accumulated memory and heartbeat log
 - `vessel/TASKS.md` -- task queue for the heartbeat (create when needed)
+
+---
+
+## The operator terminal
+
+After install, the `hermes` command gives you a conversational terminal to talk directly to your vessel. Ask it anything, ask it to build features, ask it to restyle.
+
+```
+hermes chat         open the conversation terminal
+hermes theme        show the current terminal theme
+hermes theme-reset  reset terminal style to default
+hermes status       show the systemd service status
+hermes logs         stream live logs (ctrl+c to exit)
+hermes build        trigger a site rebuild
+hermes restart      restart the bridge service
+```
+
+### Talking to the vessel
+
+`hermes chat` opens a session-aware conversation. The vessel remembers everything you said in that session.
+
+```
+  vessel  ▸  listening   session: a3f2c1b0
+
+  you: what files are in the hermes directory?
+  vessel: I can see the main files -- bridge.py, run, hermes, README.md, and the vessel directory with your tree nodes...
+
+  you: can the terminal look like something from a submarine?
+  vessel: sure, give me a moment
+  — terminal restyled —
+
+  ⊕ sonar: _
+```
+
+The vessel can read files and list directories automatically. When it needs to write a file or run a command, it tells you what it plans to do and asks for confirmation before anything changes.
+
+```
+  you: add a dark mode toggle to the homepage
+
+  vessel: I'll read the current homepage first to understand the structure, then add a toggle button and a CSS media query override.
+  · write /root/hermes/static/index.html — add dark mode toggle and CSS
+
+  vessel: shall I go ahead?
+  > yeah go for it
+
+  ▸ working...
+  vessel: done — the toggle is live. reload the page to see it.
+```
+
+Natural language confirmation works: yes, yeah, sure, go ahead, do it, absolutely, sounds good, make it so. Anything else cancels the action.
+
+### Terminal theming
+
+The vessel can restyle the terminal to look like anything. Ask in chat:
+
+```
+  you: can this look like mycelium? like we're communicating through fungal networks
+  you: make this feel like a 1980s RPG
+  you: give this a submarine sonar aesthetic
+  you: restyle this like an ancient oracle
+```
+
+The vessel generates ASCII art, borders, prompts, and dividers from scratch -- stored in `.hermes_theme.json` and applied to every subsequent session. Run `hermes theme` to see the current style, `hermes theme-reset` to return to default.
 
 ---
 
@@ -377,21 +442,18 @@ GEVURAH is always available in the tree. Any request HECATE classifies as potent
 ## Day-to-day
 
 ```bash
-# Edit the vessel identity
-nano /root/hermes/vessel/VESSEL.md
+hermes chat          talk to the vessel — ask it to build anything
+hermes status        check the service is running
+hermes logs          stream live logs
+hermes restart       restart after manual edits to bridge.py
+hermes build         rebuild the static site
 
-# Edit what the vessel remembers
+# Edit the vessel directly
+nano /root/hermes/vessel/VESSEL.md
 nano /root/hermes/vessel/STATE.md
 
-# Restart after editing bridge.py
-systemctl restart hermes
-
-# Check status
-systemctl status hermes
+# Health check
 curl http://localhost:8000/health
-
-# Read logs
-journalctl -u hermes -n 50 --no-pager
 ```
 
 ---
@@ -417,7 +479,7 @@ TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_ALLOWED_IDS=your-user-id
 ```
 
-4. Restart: `systemctl restart hermes`
+4. Restart: `hermes restart`
 
 The bridge starts polling. Messages from your allowed IDs route through the full vessel tree -- same HECATE classification, same node traversal, same identity. Responses come back as concise plain text. Prefix a message with `//` for a private note that gets logged but not responded to.
 

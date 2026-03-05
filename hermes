@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# HERMES — command-line interface
+
+THEME_FILE="/root/hermes/.hermes_theme.json"
+BRIDGE="http://127.0.0.1:8000"
+
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+
+color_code() {
+  case "$1" in
+    red)     echo '\033[0;31m' ;;
+    green)   echo '\033[0;32m' ;;
+    yellow)  echo '\033[0;33m' ;;
+    blue)    echo '\033[0;34m' ;;
+    magenta) echo '\033[0;35m' ;;
+    white)   echo '\033[0;37m' ;;
+    cyan|*)  echo '\033[0;36m' ;;
+  esac
+}
+
+load_theme() {
+  ACCENT_COLOR="cyan"
+  VESSEL_LABEL="vessel"
+  T_BANNER=""
+  T_TAGLINE="vessel interface"
+  T_INPUT_PROMPT=""
+  T_YOU_OPEN=""
+  T_YOU_CLOSE=""
+  T_VESSEL_OPEN=""
+  T_VESSEL_CLOSE=""
+  T_DIVIDER=""
+  if [[ -f "$THEME_FILE" ]]; then
+    _py() { python3 -c "import json; d=json.load(open('$THEME_FILE')); print(d.get('$1',''))" 2>/dev/null; }
+    ACCENT_COLOR=$(  _py accent);       [[ -z "$ACCENT_COLOR" ]] && ACCENT_COLOR="cyan"
+    VESSEL_LABEL=$(  _py label);        [[ -z "$VESSEL_LABEL" ]] && VESSEL_LABEL="vessel"
+    T_BANNER=$(      _py banner)
+    T_TAGLINE=$(     _py tagline)
+    T_INPUT_PROMPT=$(_py input_prompt)
+    T_YOU_OPEN=$(    _py you_open)
+    T_YOU_CLOSE=$(   _py you_close)
+    T_VESSEL_OPEN=$( _py vessel_open)
+    T_VESSEL_CLOSE=$(_py vessel_close)
+    T_DIVIDER=$(     _py divider)
+  fi
+  ACCENT=$(color_code "$ACCENT_COLOR")
+}
+
+save_theme() {
+  python3 - "$@" << 'PYEOF'
+import json, sys
+keys = ['accent','label','banner','tagline','input_prompt','you_open','you_close','vessel_open','vessel_close','divider']
+d = {k: sys.argv[i+1] if i+1 < len(sys.argv) else '' for i, k in enumerate(keys)}
+json.dump(d, open('/root/hermes/.hermes_theme.json','w'), indent=2)
+PYEOF
+}
+
+banner() {
+  load_theme
+  echo ""
+  if [[ -n "$T_BANNER" ]]; then
+    echo -e "${ACCENT}$(echo -e "$T_BANNER")${RESET}"
+  else
+    echo -e "${ACCENT}  ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗${RESET}"
+    echo -e "${ACCENT}  ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝${RESET}"
+    echo -e "${ACCENT}  ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗${RESET}"
+    echo -e "${ACCENT}  ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║${RESET}"
+    echo -e "${ACCENT}  ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║${RESET}"
+    echo -e "${ACCENT}  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝${RESET}"
+  fi
+  echo ""
+  echo -e "  ${DIM}${T_TAGLINE:-vessel interface}${RESET}"
+  echo ""
+}
+
+print_vessel() {
+  if [[ -n "$T_VESSEL_OPEN" ]]; then
+    echo -e "${ACCENT}${T_VESSEL_OPEN}${RESET} $1"
+    [[ -n "$T_VESSEL_CLOSE" ]] && echo -e "${ACCENT}${T_VESSEL_CLOSE}${RESET}"
+  else
+    echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} $1"
+  fi
+}
+
+print_divider() {
+  [[ -n "$T_DIVIDER" ]] && echo -e "  ${DIM}${T_DIVIDER}${RESET}"
+  echo ""
+}
+
+# ── handle a raw API response — may be reply, pending, or error ───────────────
+handle_response() {
+  local raw="$1"
+  local session_id="$2"
+
+  local kind
+  kind=$(echo "$raw" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+if 'reply' in d:    print('reply')
+elif d.get('pending'): print('pending')
+elif 'error' in d: print('error')
+else: print('unknown')
+" 2>/dev/null)
+
+  if [[ "$kind" == "reply" ]]; then
+    local reply
+    reply=$(echo "$raw" | python3 -c "import json,sys; print(json.load(sys.stdin)['reply'])" 2>/dev/null)
+
+    # Check for theme update
+    local new_accent new_label new_banner new_tagline new_input new_you_open new_you_close new_vessel_open new_vessel_close new_divider
+    new_accent=$(echo "$raw" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d.get('theme',{}); print(t.get('accent',''))" 2>/dev/null)
+    if [[ -n "$new_accent" ]]; then
+      new_label=$(      echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('label',''))"        2>/dev/null)
+      new_banner=$(     echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('banner',''))"       2>/dev/null)
+      new_tagline=$(    echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('tagline',''))"      2>/dev/null)
+      new_input=$(      echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('input_prompt',''))" 2>/dev/null)
+      new_you_open=$(   echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('you_open',''))"     2>/dev/null)
+      new_you_close=$(  echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('you_close',''))"    2>/dev/null)
+      new_vessel_open=$(echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('vessel_open',''))"  2>/dev/null)
+      new_vessel_close=$(echo "$raw"| python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('vessel_close',''))" 2>/dev/null)
+      new_divider=$(    echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('divider',''))"      2>/dev/null)
+      ACCENT_COLOR="$new_accent"
+      [[ -n "$new_label" ]] && VESSEL_LABEL="$new_label"
+      T_BANNER="$new_banner"; T_TAGLINE="$new_tagline"; T_INPUT_PROMPT="$new_input"
+      T_YOU_OPEN="$new_you_open"; T_YOU_CLOSE="$new_you_close"
+      T_VESSEL_OPEN="$new_vessel_open"; T_VESSEL_CLOSE="$new_vessel_close"
+      T_DIVIDER="$new_divider"
+      ACCENT=$(color_code "$ACCENT_COLOR")
+      save_theme "$ACCENT_COLOR" "$VESSEL_LABEL" "$T_BANNER" "$T_TAGLINE" \
+                 "$T_INPUT_PROMPT" "$T_YOU_OPEN" "$T_YOU_CLOSE" \
+                 "$T_VESSEL_OPEN" "$T_VESSEL_CLOSE" "$T_DIVIDER"
+      echo ""
+      echo -e "  ${DIM}— terminal restyled —${RESET}"
+      echo ""
+      banner
+    fi
+
+    echo ""
+    print_vessel "$reply"
+    echo ""
+    print_divider
+
+  elif [[ "$kind" == "pending" ]]; then
+    # Show proposed changes and ask for confirmation
+    echo ""
+    echo -e "  ${YELLOW}▸ proposed changes:${RESET}"
+    echo ""
+    echo "$raw" | python3 -c "
+import json, sys
+actions = json.load(sys.stdin).get('pending', [])
+for i, a in enumerate(actions, 1):
+    if a['type'] == 'write':
+        print(f\"  {i}.  WRITE  {a['path']}\")
+        if a.get('description'):
+            print(f\"       {a['description']}\")
+        if a.get('preview'):
+            preview = a['preview'][:120].replace('\n', ' ')
+            print(f\"       preview: {preview}...\")
+    elif a['type'] == 'run':
+        print(f\"  {i}.  RUN    {a['command']}\")
+        if a.get('description'):
+            print(f\"       {a['description']}\")
+" 2>/dev/null
+    echo ""
+    printf "  ${BOLD}confirm?${RESET} [y/n] "
+    read -r confirm
+    echo ""
+
+    local confirmed="false"
+    if [[ "${confirm,,}" == "y" || "${confirm,,}" == "yes" ]]; then
+      confirmed="true"
+      echo -e "  ${ACCENT}▸ executing...${RESET}"
+      echo ""
+    else
+      echo -e "  ${DIM}cancelled.${RESET}"
+      echo ""
+    fi
+
+    local confirm_payload
+    confirm_payload=$(python3 -c "
+import json
+print(json.dumps({'session_id': '$session_id', 'confirmed': $confirmed}))
+" 2>/dev/null)
+
+    local confirm_raw
+    confirm_raw=$(curl -s -X POST "$BRIDGE/chat/confirm" \
+      -H "Content-Type: application/json" \
+      -d "$confirm_payload")
+
+    # Recursively handle the response (may chain into another pending)
+    handle_response "$confirm_raw" "$session_id"
+
+  elif [[ "$kind" == "error" ]]; then
+    local err
+    err=$(echo "$raw" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error','unknown error'))" 2>/dev/null)
+    echo ""
+    echo -e "  ${RED}error:${RESET} $err"
+    echo ""
+  else
+    echo ""
+    echo -e "  ${DIM}(no response)${RESET}"
+    echo ""
+  fi
+}
+
+# ── commands ───────────────────────────────────────────────────────────────────
+CMD="${1:-}"
+
+case "$CMD" in
+
+  chat)
+    load_theme
+    banner
+    SESSION_ID=$(python3 -c "import uuid; print(str(uuid.uuid4())[:8])")
+    echo -e "  ${ACCENT}▸${RESET} ${VESSEL_LABEL} is listening  ${DIM}session: $SESSION_ID${RESET}"
+    echo -e "  ${DIM}ask anything · ask to build features · ask to restyle · type exit to leave${RESET}"
+    echo ""
+
+    while true; do
+      if [[ -n "$T_INPUT_PROMPT" ]]; then
+        printf "  ${ACCENT}${T_INPUT_PROMPT}${RESET}"
+      else
+        printf "  ${BOLD}you:${RESET} "
+      fi
+      read -r msg
+      [[ -z "$msg" ]] && continue
+      [[ "${msg,,}" == "exit" || "${msg,,}" == "quit" ]] && echo "" && break
+
+      payload=$(python3 -c "
+import json, sys
+print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
+" "$msg" "$SESSION_ID" 2>/dev/null)
+
+      raw=$(curl -s -X POST "$BRIDGE/chat" \
+        -H "Content-Type: application/json" \
+        -d "$payload")
+
+      handle_response "$raw" "$SESSION_ID"
+    done
+    ;;
+
+  theme)
+    load_theme; banner
+    echo -e "  ${BOLD}current theme:${RESET}"
+    echo ""
+    echo -e "  accent        ${ACCENT}$ACCENT_COLOR${RESET}"
+    echo -e "  label         $VESSEL_LABEL"
+    [[ -n "$T_TAGLINE" ]]      && echo -e "  tagline       ${DIM}$T_TAGLINE${RESET}"
+    [[ -n "$T_INPUT_PROMPT" ]] && echo -e "  input prompt  ${DIM}$T_INPUT_PROMPT${RESET}"
+    [[ -n "$T_DIVIDER" ]]      && echo -e "  divider       ${DIM}$T_DIVIDER${RESET}"
+    echo ""
+    echo -e "  ${DIM}in chat, ask to restyle: 'make this look like a submarine'${RESET}"
+    echo ""
+    ;;
+
+  theme-reset)
+    rm -f "$THEME_FILE"
+    echo -e "\n  theme reset to default\n"
+    ;;
+
+  status)
+    banner; systemctl status hermes --no-pager
+    ;;
+
+  logs)
+    banner
+    echo -e "  ${DIM}streaming logs — ctrl+c to exit${RESET}\n"
+    journalctl -u hermes -f --no-pager
+    ;;
+
+  build)
+    banner
+    MSG="${2:-render the site homepage}"
+    echo -e "  ${ACCENT}▸${RESET} building: ${DIM}$MSG${RESET}\n"
+    curl -s -X POST "$BRIDGE/build" -d "$MSG"
+    echo ""
+    ;;
+
+  restart)
+    banner
+    echo -e "  ${ACCENT}▸${RESET} restarting hermes..."
+    systemctl restart hermes && sleep 2
+    systemctl is-active --quiet hermes \
+      && echo -e "  ${GREEN}✓${RESET} running" \
+      || echo -e "  ${RED}!${RESET} failed to start"
+    echo ""
+    ;;
+
+  *)
+    banner
+    echo -e "  ${BOLD}commands:${RESET}\n"
+    echo -e "  ${ACCENT}hermes chat${RESET}         talk to the vessel — ask it to build anything"
+    echo -e "  ${ACCENT}hermes theme${RESET}        show current terminal theme"
+    echo -e "  ${ACCENT}hermes theme-reset${RESET}  reset to default style"
+    echo -e "  ${ACCENT}hermes status${RESET}       service status"
+    echo -e "  ${ACCENT}hermes logs${RESET}         live log stream"
+    echo -e "  ${ACCENT}hermes build${RESET}        rebuild the static site"
+    echo -e "  ${ACCENT}hermes restart${RESET}      restart the bridge"
+    echo ""
+    ;;
+
+esac

@@ -55,6 +55,411 @@ TELEGRAM_ALLOWED = set(
 )
 
 
+
+
+# -- chat theme instructions -------------------------------------------------
+
+CHAT_THEME_INSTRUCTIONS = """
+
+TERMINAL THEMING: If the operator asks you to change the look, feel, or style
+of the terminal in any way, generate a complete custom terminal theme and
+include it at the very END of your reply in this exact format:
+
+THEME_JSON
+{
+  "accent": "COLOR",
+  "label": "LABEL",
+  "banner": "LINE1
+LINE2
+LINE3",
+  "tagline": "subtitle text",
+  "input_prompt": "> ",
+  "you_open": "  you:",
+  "you_close": "",
+  "vessel_open": "  vessel:",
+  "vessel_close": "",
+  "divider": "  ─────────────────────"
+}
+THEME_END
+
+Fields:
+  accent       - one of: red green yellow blue magenta cyan white
+  label        - vessel name in chat (max 12 chars, no spaces)
+  banner       - full ASCII/unicode art header, use 
+ between lines
+  tagline      - subtitle below the banner
+  input_prompt - chars before user types (e.g. "> " or "∘ ")
+  you_open     - prefix or line before user message
+  you_close    - line after user message, empty string if none
+  vessel_open  - prefix or line shown with vessel reply
+  vessel_close - line after vessel reply, empty string if none
+  divider      - separator between exchanges
+
+Be FULLY creative. The terminal can look like ANYTHING: submarine sonar,
+ancient runes, haunted typewriter, mycelium network, retro RPG, deep sea,
+space cockpit, l33tspeak, horror, poetry, or anything the operator describes.
+Generate real ASCII/unicode art for the banner. Make it completely immersive.
+Only include THEME_JSON...THEME_END if the operator explicitly asks to restyle.
+"""
+
+# ── chat — direct terminal conversation ──────────────────────────────────────
+
+
+_chat_sessions: dict = {}  # session_id -> conversation history
+_chat_pending:  dict = {}  # session_id -> pending tool calls awaiting confirmation
+
+# ── operator tools ────────────────────────────────────────────────────────────
+
+import subprocess as _subprocess
+
+OPERATOR_TOOLS = [
+    {
+        "name": "read_file",
+        "description": (
+            "Read a file from the server filesystem. "
+            "Use to understand existing code before writing changes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute file path"}
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "list_dir",
+        "description": "List files and directories at a path on the server.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory path"}
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Write content to a file — creates or overwrites. "
+            "Requires operator confirmation before executing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":        {"type": "string", "description": "Absolute file path"},
+                "content":     {"type": "string", "description": "Full file content"},
+                "description": {"type": "string", "description": "Plain English: what this change does"},
+            },
+            "required": ["path", "content", "description"],
+        },
+    },
+    {
+        "name": "run_command",
+        "description": (
+            "Run a shell command on the server (git, pip, systemctl, npm, etc.). "
+            "Requires operator confirmation before executing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command":     {"type": "string", "description": "Shell command to run"},
+                "description": {"type": "string", "description": "Plain English: what this command does"},
+            },
+            "required": ["command", "description"],
+        },
+    },
+]
+
+
+def _exec_safe_tool(name: str, inp: dict) -> str:
+    """Execute read-only tools immediately — no confirmation needed."""
+    try:
+        if name == "read_file":
+            p = Path(inp["path"])
+            if not p.exists():
+                return f"File not found: {inp['path']}"
+            text = p.read_text(errors="replace")
+            if len(text) > 8000:
+                text = text[:8000] + f"\n\n... (truncated — {len(text)} total chars)"
+            return text
+        if name == "list_dir":
+            p = Path(inp["path"])
+            if not p.exists():
+                return f"Not found: {inp['path']}"
+            rows = []
+            for item in sorted(p.iterdir()):
+                tag  = "dir " if item.is_dir() else "file"
+                size = f"  {item.stat().st_size}b" if item.is_file() else ""
+                rows.append(f"{tag}  {item.name}{size}")
+            return "\n".join(rows) or "(empty)"
+    except Exception as e:
+        return f"Error: {e}"
+    return "Unknown tool"
+
+
+def _exec_dangerous_tool(name: str, inp: dict) -> str:
+    """Execute write/run tools after operator confirmation."""
+    try:
+        if name == "write_file":
+            p = Path(inp["path"])
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(inp["content"])
+            return f"Written {len(inp['content'])} chars → {inp['path']}"
+        if name == "run_command":
+            result = _subprocess.run(
+                inp["command"],
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd="/root/hermes",
+            )
+            out = (result.stdout + result.stderr).strip()
+            if len(out) > 3000:
+                out = out[:3000] + "\n... (truncated)"
+            return out or "(no output)"
+    except _subprocess.TimeoutExpired:
+        return "Command timed out after 60 seconds."
+    except Exception as e:
+        return f"Error: {e}"
+    return "Unknown tool"
+
+
+async def _operator_loop(session_id: str, history: list, system: str) -> dict:
+    """
+    Agentic tool loop. Runs until Claude produces a text reply or hits a
+    write/run tool that requires operator confirmation.
+
+    Returns:
+        {"done": True,  "reply": "..."}
+        {"done": False, "pending": [...actions...]}
+    """
+    while True:
+        resp = await asyncio.to_thread(
+            lambda: client.messages.create(
+                model=MODEL_RENDER,
+                max_tokens=4096,
+                system=system,
+                tools=OPERATOR_TOOLS,
+                messages=history,
+            )
+        )
+
+        # ── pure text reply ───────────────────────────────────────────────────
+        if resp.stop_reason == "end_turn":
+            text = " ".join(
+                b.text for b in resp.content if hasattr(b, "text")
+            ).strip()
+            history.append({
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+            })
+            return {"done": True, "reply": text}
+
+        # ── tool use ──────────────────────────────────────────────────────────
+        if resp.stop_reason == "tool_use":
+            # Store Claude's full response in history
+            history.append({
+                "role": "assistant",
+                "content": [b.model_dump() for b in resp.content],
+            })
+
+            tool_calls      = [b for b in resp.content if b.type == "tool_use"]
+            safe_calls      = [t for t in tool_calls if t.name in ("read_file", "list_dir")]
+            dangerous_calls = [t for t in tool_calls if t.name in ("write_file", "run_command")]
+
+            tool_results = []
+
+            # Execute safe tools immediately
+            for tc in safe_calls:
+                result = _exec_safe_tool(tc.name, tc.input)
+                log.info(f"TOOL {tc.name}: {str(tc.input)[:60]}")
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc.id,
+                    "content": result,
+                })
+
+            # Dangerous tools → pause for confirmation
+            if dangerous_calls:
+                _chat_pending[session_id] = {
+                    "history":            history,
+                    "safe_results":       tool_results,
+                    "dangerous_calls":    [
+                        {"id": t.id, "name": t.name, "input": t.input}
+                        for t in dangerous_calls
+                    ],
+                    "system":             system,
+                }
+                actions = []
+                for tc in dangerous_calls:
+                    if tc.name == "write_file":
+                        actions.append({
+                            "type":        "write",
+                            "path":        tc.input["path"],
+                            "description": tc.input.get("description", ""),
+                            "preview":     tc.input.get("content", "")[:300],
+                        })
+                    elif tc.name == "run_command":
+                        actions.append({
+                            "type":        "run",
+                            "command":     tc.input["command"],
+                            "description": tc.input.get("description", ""),
+                        })
+                return {"done": False, "pending": actions}
+
+            # Only safe tools — continue the loop
+            history.append({"role": "user", "content": tool_results})
+            continue
+
+        break  # unexpected stop reason
+
+    return {"done": True, "reply": "(no response)"}
+
+
+def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> str:
+    return (
+        "You are wearing this vessel. This is who you are:\n\n"
+        + vessel_text
+        + "\n\nCurrent state and memory:\n"
+        + state_text
+        + "\n\n"
+        + tree_context
+        + "\n\nYou are in a direct terminal conversation with your operator — "
+        + "the person who built and runs this vessel. "
+        + "You have tools to read files, list directories, write files, and run shell commands. "
+        + "Use them when the operator asks you to build features, make changes, or modify the website. "
+        + "Always read relevant files first to understand the current structure before writing. "
+        + "write_file and run_command require operator confirmation — the system pauses automatically. "
+        + "For casual conversation, just reply in plain text. No HTML. No markdown. "
+        + "Conversational, direct, and present. Remember the full session."
+        + CHAT_THEME_INSTRUCTIONS
+    )
+
+
+def _parse_theme(reply: str):
+    """Extract THEME_JSON block from reply. Returns (clean_reply, theme_dict_or_None)."""
+    import re as _re, json as _json
+    tm = _re.search(r"\nTHEME_JSON\n(.*?)\nTHEME_END", reply, _re.DOTALL)
+    if tm:
+        try:
+            theme = _json.loads(tm.group(1).strip())
+            reply = (reply[:tm.start()] + reply[tm.end():]).strip()
+            return reply, theme
+        except Exception as e:
+            log.warning("THEME parse error: " + str(e))
+    return reply, None
+
+
+# ── /chat — operator terminal ─────────────────────────────────────────────────
+
+@app.post("/chat")
+async def chat(request: Request):
+    """
+    Operator chat endpoint. Supports full agentic tool use.
+    Returns either {"reply": "...", "session_id": "..."} for text replies
+    or {"pending": [...], "session_id": "...", "done": false} when
+    write_file / run_command actions need confirmation.
+    """
+    if not (VESSEL_DIR / "VESSEL.md").exists():
+        return JSONResponse({"error": "no vessel — run setup first"}, status_code=400)
+
+    body = (await request.body()).decode().strip()
+    try:
+        data       = json.loads(body)
+        message    = data.get("message", "").strip()
+        session_id = data.get("session_id", "").strip()
+    except Exception:
+        message    = body
+        session_id = ""
+
+    if not message:
+        return JSONResponse({"error": "message is required"}, status_code=400)
+
+    if not session_id or session_id not in _chat_sessions:
+        session_id = str(uuid.uuid4())[:8]
+        _chat_sessions[session_id] = []
+
+    history = _chat_sessions[session_id]
+    history.append({"role": "user", "content": message})
+
+    ctx          = load_vessel()
+    route        = hecate(ctx, message)
+    tree_context = build_tree_context(route)
+    system       = _build_chat_system(ctx["vessel"], ctx["state"] or "(no prior state)", tree_context)
+
+    result = await _operator_loop(session_id, history, system)
+
+    if result["done"]:
+        reply, theme = _parse_theme(result["reply"])
+        log.info("CHAT session=" + session_id + " turn=" + str(len(history) // 2))
+        out = {"reply": reply, "session_id": session_id}
+        if theme:
+            out["theme"] = theme
+            log.info("THEME: " + str(list(theme.keys())))
+        return JSONResponse(out)
+    else:
+        log.info("CHAT session=" + session_id + " — awaiting confirmation")
+        return JSONResponse({
+            "pending":    result["pending"],
+            "session_id": session_id,
+            "done":       False,
+        })
+
+
+@app.post("/chat/confirm")
+async def chat_confirm(request: Request):
+    """
+    Execute or cancel pending tool actions.
+    POST {"session_id": "...", "confirmed": true/false}
+    """
+    try:
+        data       = await request.json()
+        session_id = data.get("session_id", "")
+        confirmed  = data.get("confirmed", False)
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    if session_id not in _chat_pending:
+        return JSONResponse({"error": "no pending action for this session"}, status_code=400)
+
+    pending         = _chat_pending.pop(session_id)
+    history         = pending["history"]
+    tool_results    = pending["safe_results"]
+    dangerous_calls = pending["dangerous_calls"]
+    system          = pending["system"]
+
+    for tc in dangerous_calls:
+        if confirmed:
+            result = _exec_dangerous_tool(tc["name"], tc["input"])
+            log.info("TOOL EXECUTED " + tc["name"] + ": " + result[:80])
+        else:
+            result = "Operator cancelled this action."
+        tool_results.append({
+            "type":        "tool_result",
+            "tool_use_id": tc["id"],
+            "content":     result,
+        })
+
+    history.append({"role": "user", "content": tool_results})
+    result = await _operator_loop(session_id, history, system)
+    _chat_sessions[session_id] = history
+
+    if result["done"]:
+        reply, theme = _parse_theme(result["reply"])
+        out = {"reply": reply, "session_id": session_id}
+        if theme:
+            out["theme"] = theme
+        return JSONResponse(out)
+    else:
+        return JSONResponse({
+            "pending":    result["pending"],
+            "session_id": session_id,
+            "done":       False,
+        })
+
+
 # ── analytics storage ────────────────────────────────────────────────────────
 
 ANALYTICS_FILE = VESSEL_DIR / "analytics.json"

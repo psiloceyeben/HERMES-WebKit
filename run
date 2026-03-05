@@ -173,6 +173,12 @@ nginx -t
 systemctl reload nginx
 ok "nginx configured"
 
+# ── hermes CLI ───────────────────────────────────────────────────────────────
+step "Installing hermes CLI..."
+cp "/hermes" /usr/local/bin/hermes
+chmod +x /usr/local/bin/hermes
+ok "hermes command installed — type: hermes"
+
 # ── start ─────────────────────────────────────────────────────────────────────
 step "Starting HERMES..."
 systemctl start hermes

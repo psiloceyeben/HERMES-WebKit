@@ -138,18 +138,45 @@ certbot --nginx -d yourdomain.com -d www.yourdomain.com
 
 If you provided a domain during `install.ps1`, the installer handles certbot for you.
 
-### Step 6 -- Verify
+### Step 6 -- Connect to your server
+
+The installer prints an SSH command when it finishes. It looks like this:
+
+```
+ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP
+```
+
+Run that from your terminal (Windows Terminal, PowerShell, or any SSH client). This connects you to the server where HERMES is running. Everything from here happens on the server over that SSH connection.
+
+Once connected, open the operator terminal:
 
 ```bash
-systemctl status hermes
-systemctl status nginx
+hermes studio
+```
+
+This splits your terminal into two panes -- chat on the left, shell on the right. Click between them with the mouse. From the chat pane you can talk to the vessel, ask it to build features, or restyle the site. From the shell pane you can run any of the other `hermes` commands without leaving.
+
+That SSH connection is your back door into the site. Visitors reach the site through the browser at your URL. You reach it through the terminal over SSH. The two paths are completely separate -- visitors never touch the operator terminal and cannot reach it.
+
+### Step 7 -- Verify
+
+From inside the SSH session:
+
+```bash
+hermes status        # check the service is running
+hermes sites         # list all vessels on this server
+```
+
+Or directly:
+
+```bash
 curl http://localhost:8000/health
 ```
 
-The health check returns JSON with status and a list of nodes present. If the bridge is not running, check logs:
+The health check returns JSON with status and a list of nodes present. If the bridge is not running:
 
 ```bash
-journalctl -u hermes -n 50 --no-pager
+hermes logs
 ```
 
 The most common issue is a missing or malformed API key in `.env`.
@@ -349,10 +376,15 @@ Files generated at install time (not committed):
 
 ## The operator terminal
 
-After install, the `hermes` command gives you a conversational terminal to talk directly to your vessel. Ask it anything, ask it to build features, ask it to restyle.
+The operator terminal runs on the server. To use it, SSH into your server first, then run `hermes` commands. The installer prints the SSH command when it finishes -- it looks like `ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP`.
+
+Once connected, `hermes studio` is the main way to work -- it opens a split view with chat on the left and a shell on the right, so you can talk to the vessel and run commands at the same time without switching windows.
 
 ```
-hermes chat         open the conversation terminal
+hermes studio       open chat + shell side by side (recommended)
+hermes chat         open the conversation terminal inline
+hermes sites        list all vessels on this server
+hermes new-site     create a second vessel with its own identity
 hermes theme        show the current terminal theme
 hermes theme-reset  reset terminal style to default
 hermes status       show the systemd service status
@@ -441,8 +473,20 @@ GEVURAH is always available in the tree. Any request HECATE classifies as potent
 
 ## Day-to-day
 
+Everything runs on the server. SSH in first, then use the `hermes` commands.
+
 ```bash
-hermes chat          talk to the vessel — ask it to build anything
+# Connect to your server
+ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP
+
+# Open the operator terminal (chat left, shell right — click to switch)
+hermes studio
+
+# Or just the chat if you prefer
+hermes chat
+
+# Other commands
+hermes sites         list all vessels on this server
 hermes status        check the service is running
 hermes logs          stream live logs
 hermes restart       restart after manual edits to bridge.py
@@ -451,10 +495,9 @@ hermes build         rebuild the static site
 # Edit the vessel directly
 nano /root/hermes/vessel/VESSEL.md
 nano /root/hermes/vessel/STATE.md
-
-# Health check
-curl http://localhost:8000/health
 ```
+
+The SSH connection is the operator path. The public URL is the visitor path. They are separate. Visitors see the static site and optionally the visitor chat widget. The operator terminal is only accessible from inside the SSH session.
 
 ---
 

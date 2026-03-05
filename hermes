@@ -4,28 +4,33 @@
 THEME_FILE="/root/hermes/.hermes_theme.json"
 BRIDGE="http://127.0.0.1:8000"
 
-# Load operator token from .env
-BUILD_TOKEN=$(python3 -c "
-import re, os
-env = '/root/hermes/.env'
-if os.path.exists(env):
-    for line in open(env):
-        m = re.match(r'BUILD_TOKEN=[\"\\']?([^\"\\'\\n]+)', line.strip())
-        if m: print(m.group(1)); break
-" 2>/dev/null)
-
-if [[ -z "\$BUILD_TOKEN" ]]; then
-  echo -e \"\n  \${RED}error:\${RESET} BUILD_TOKEN not set in /root/hermes/.env\"
-  echo -e \"  Add BUILD_TOKEN=your-secret-token to .env and run: hermes restart\n\"
-  exit 1
-fi
-
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
+
+# Load operator token from .env (works for main site and any site)
+_ENV_FILE="${HERMES_ENV:-/root/hermes/.env}"
+BUILD_TOKEN=$(python3 -c "
+import re, os
+env = '$_ENV_FILE'
+if os.path.exists(env):
+    for line in open(env):
+        m = re.match(r'BUILD_TOKEN=(.+)', line.strip())
+        if m: print(m.group(1).strip('\"').strip(\"'\")); break
+" 2>/dev/null)
+
+if [[ -z "$BUILD_TOKEN" ]]; then
+  echo -e "\n  ${RED}error:${RESET} BUILD_TOKEN not set in $_ENV_FILE"
+  echo -e "  Add BUILD_TOKEN=your-secret-token to .env and run: hermes restart\n"
+  exit 1
+fi
+
+# Allow overriding which port the CLI talks to (for secondary sites)
+_PORT="${HERMES_PORT:-8000}"
+BRIDGE="http://127.0.0.1:$_PORT"
 
 color_code() {
   case "$1" in
@@ -107,7 +112,6 @@ print_divider() {
   echo ""
 }
 
-# ── handle a raw API response — may be reply, pending, or error ───────────────
 handle_response() {
   local raw="$1"
   local session_id="$2"
@@ -126,10 +130,10 @@ else: print('unknown')
     local reply
     reply=$(echo "$raw" | python3 -c "import json,sys; print(json.load(sys.stdin)['reply'])" 2>/dev/null)
 
-    # Check for theme update
-    local new_accent new_label new_banner new_tagline new_input new_you_open new_you_close new_vessel_open new_vessel_close new_divider
+    local new_accent
     new_accent=$(echo "$raw" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d.get('theme',{}); print(t.get('accent',''))" 2>/dev/null)
     if [[ -n "$new_accent" ]]; then
+      local new_label new_banner new_tagline new_input new_you_open new_you_close new_vessel_open new_vessel_close new_divider
       new_label=$(      echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('label',''))"        2>/dev/null)
       new_banner=$(     echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('banner',''))"       2>/dev/null)
       new_tagline=$(    echo "$raw" | python3 -c "import json,sys; t=json.load(sys.stdin).get('theme',{}); print(t.get('tagline',''))"      2>/dev/null)
@@ -161,7 +165,6 @@ else: print('unknown')
     print_divider
 
   elif [[ "$kind" == "pending" ]]; then
-    # Show vessel's narration if it explained what it's about to do
     local vessel_text
     vessel_text=$(echo "$raw" | python3 -c "
 import json, sys
@@ -172,7 +175,6 @@ print(json.load(sys.stdin).get('vessel_text', ''))
       print_vessel "$vessel_text"
     fi
 
-    # Show what it plans to do — descriptions only, no raw paths/commands
     echo ""
     echo "$raw" | python3 -c "
 import json, sys
@@ -184,19 +186,17 @@ if descs:
 " 2>/dev/null
     echo ""
 
-    # Ask conversationally
     printf "  ${ACCENT}${VESSEL_LABEL}:${RESET} shall I go ahead? "
     read -r confirm
     echo ""
 
-    # Accept any natural affirmative or negative
     local confirmed
     confirmed=$(python3 -c "
 import sys
 msg = sys.argv[1].lower().strip()
 yes_words = {'y','yes','yeah','yep','yup','sure','ok','okay','go','do it',
              'proceed','absolutely','sounds good','go ahead','definitely',
-             'please','do that','make it so','let s go','lets go','affirmative'}
+             'please','do that','make it so','lets go','let s go','affirmative'}
 print('True' if any(w in msg for w in yes_words) else 'False')
 " "$confirm" 2>/dev/null || echo "False")
 
@@ -220,7 +220,6 @@ print(json.dumps({'session_id': '$session_id', 'confirmed': $confirmed}))
       -H "X-Build-Token: $BUILD_TOKEN" \
       -d "$confirm_payload")
 
-    # Recursively handle — may chain into another confirmation if more steps
     handle_response "$confirm_raw" "$session_id"
 
   elif [[ "$kind" == "error" ]]; then
@@ -234,6 +233,70 @@ print(json.dumps({'session_id': '$session_id', 'confirmed': $confirmed}))
     echo -e "  ${DIM}(no response)${RESET}"
     echo ""
   fi
+}
+
+# ── inline setup wizard — used by 'new' and 'new-site' ────────────────────────
+run_wizard() {
+  local vessel_dir="$1"
+  local port="$2"
+  local token="$3"
+
+  echo -e "  ${DIM}answer a few questions to define the vessel${RESET}"
+  echo ""
+
+  printf "  what is this website called?                    "
+  read -r W_NAME
+  printf "  what is it for, and who is it for?              "
+  read -r W_PURPOSE
+  printf "  what voice or tone?                             "
+  read -r W_VOICE
+  printf "  what does it know about?                        "
+  read -r W_KNOWS
+  printf "  what should visitors feel or do when they leave? "
+  read -r W_OUTCOME
+  printf "  what makes this specific to you?                "
+  read -r W_SPECIFIC
+  printf "  what should it never do or say?                 "
+  read -r W_NEVER
+  printf "  your name or contact (optional)                 "
+  read -r W_CONTACT
+
+  echo ""
+
+  # Write VESSEL.md
+  mkdir -p "$vessel_dir"
+  cat > "$vessel_dir/VESSEL.md" << VESSELEOF
+# $W_NAME
+
+## Purpose
+$W_PURPOSE
+
+## Voice and tone
+$W_VOICE
+
+## Knowledge
+$W_KNOWS
+
+## Visitor outcome
+$W_OUTCOME
+
+## What makes this specific
+$W_SPECIFIC
+
+## Constraints
+$W_NEVER
+
+## Contact
+$W_CONTACT
+VESSELEOF
+
+  echo -e "  ${ACCENT}▸${RESET} ${DIM}building first page...${RESET}"
+  sleep 2  # let bridge settle if just started
+  curl -s -X POST "http://127.0.0.1:$port/build" \
+    -H "X-Build-Token: $token" \
+    -d "render the site homepage" > /dev/null
+  echo -e "  ${GREEN}✓${RESET} vessel configured and site built"
+  echo ""
 }
 
 # ── commands ───────────────────────────────────────────────────────────────────
@@ -306,7 +369,9 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     banner
     MSG="${2:-render the site homepage}"
     echo -e "  ${ACCENT}▸${RESET} building: ${DIM}$MSG${RESET}\n"
-    curl -s -X POST "$BRIDGE/build" -d "$MSG"
+    curl -s -X POST "$BRIDGE/build" \
+      -H "X-Build-Token: $BUILD_TOKEN" \
+      -d "$MSG"
     echo ""
     ;;
 
@@ -320,47 +385,106 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     echo ""
     ;;
 
+  sites)
+    load_theme; banner
+    echo -e "  ${BOLD}vessels on this server:${RESET}"
+    echo ""
+    IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+
+    # Main site
+    MAIN_STATUS=$(systemctl is-active hermes 2>/dev/null)
+    MAIN_COLOR=$([[ "$MAIN_STATUS" == "active" ]] && echo "$GREEN" || echo "$RED")
+    MAIN_NAME=$(python3 -c "
+import os
+v = '/root/hermes/vessel/VESSEL.md'
+if os.path.exists(v):
+    for line in open(v):
+        line = line.strip()
+        if line.startswith('# '):
+            print(line[2:]); break
+" 2>/dev/null)
+    MAIN_DOMAIN=$(grep -r "server_name" /etc/nginx/sites-enabled/hermes 2>/dev/null | awk '{print $2}' | tr -d ';' | grep -v '_' | head -1)
+    MAIN_URL="${MAIN_DOMAIN:-$IP}"
+    echo -e "  ${MAIN_COLOR}●${RESET}  ${BOLD}main${RESET}  ${DIM}port 8000${RESET}  —  ${ACCENT}http://$MAIN_URL${RESET}  ${DIM}${MAIN_NAME}${RESET}"
+
+    # Additional sites
+    for svc_file in /etc/systemd/system/hermes-*.service; do
+      [[ -f "$svc_file" ]] || continue
+      SNAME=$(basename "$svc_file" .service | sed 's/hermes-//')
+      SSTATUS=$(systemctl is-active "hermes-$SNAME" 2>/dev/null)
+      SCOLOR=$([[ "$SSTATUS" == "active" ]] && echo "$GREEN" || echo "$RED")
+      SPORT=$(grep -E 'HERMES_PORT|--port' "$svc_file" 2>/dev/null | grep -o '[0-9]\{4,\}' | head -1)
+      SDIR=$(grep EnvironmentFile "$svc_file" 2>/dev/null | awk '{print $2}' | xargs dirname 2>/dev/null)
+      SVNAME=$(python3 -c "
+import os
+v = '$SDIR/vessel/VESSEL.md'
+if os.path.exists(v):
+    for line in open(v):
+        line = line.strip()
+        if line.startswith('# '):
+            print(line[2:]); break
+" 2>/dev/null)
+      SDOMAIN=$(grep -r "server_name" "/etc/nginx/sites-enabled/$SNAME" 2>/dev/null | awk '{print $2}' | tr -d ';' | grep -v '_' | head -1)
+      if [[ -n "$SDOMAIN" ]]; then
+        SURL="http://$SDOMAIN"
+      else
+        SURL="http://$IP:${SPORT:-?}"
+      fi
+      echo -e "  ${SCOLOR}●${RESET}  ${BOLD}$SNAME${RESET}  ${DIM}port ${SPORT:-?}${RESET}  —  ${ACCENT}$SURL${RESET}  ${DIM}${SVNAME}${RESET}"
+    done
+
+    echo ""
+    echo -e "  ${DIM}hermes new-site <name>            create a new vessel${RESET}"
+    echo -e "  ${DIM}hermes add-domain <name> <domain> attach a domain to a vessel${RESET}"
+    echo ""
+    ;;
+
   new)
     load_theme; banner
     echo -e "  ${BOLD}rebuild vessel from scratch${RESET}"
     echo ""
-    echo -e "  This will archive the current VESSEL.md and STATE.md and"
-    echo -e "  restart the setup wizard. The website will redirect to /setup"
-    echo -e "  until you complete the wizard again."
+    echo -e "  The current VESSEL.md and STATE.md will be archived."
+    echo -e "  The setup wizard will run here in the terminal."
     echo ""
-    echo -e "  ${RED}this cannot be undone without restoring from the archive${RESET}"
+    echo -e "  ${RED}this replaces the current vessel identity${RESET}"
     echo ""
     printf "  type ${BOLD}yes${RESET} to confirm: "
     read -r confirm
     echo ""
-    if [[ "$confirm" == "yes" ]]; then
-      BACKUP="/root/hermes/vessel_archive_$(date +%Y%m%d_%H%M%S)"
-      mkdir -p "$BACKUP"
-      [[ -f /root/hermes/vessel/VESSEL.md ]] && cp /root/hermes/vessel/VESSEL.md "$BACKUP/"
-      [[ -f /root/hermes/vessel/STATE.md  ]] && cp /root/hermes/vessel/STATE.md  "$BACKUP/"
-      rm -f /root/hermes/vessel/VESSEL.md
-      systemctl restart hermes && sleep 1
-      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-      echo -e "  ${GREEN}✓${RESET} archived to $BACKUP"
-      echo -e "  ${ACCENT}▸${RESET} visit http://$IP/setup to configure the new vessel"
-      echo ""
-    else
+    if [[ "$confirm" != "yes" ]]; then
       echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} cancelled — nothing changed."
       echo ""
+      exit 0
     fi
+
+    BACKUP="/root/hermes/vessel_archive_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP"
+    [[ -f /root/hermes/vessel/VESSEL.md ]] && cp /root/hermes/vessel/VESSEL.md "$BACKUP/"
+    [[ -f /root/hermes/vessel/STATE.md  ]] && cp /root/hermes/vessel/STATE.md  "$BACKUP/"
+    rm -f /root/hermes/vessel/VESSEL.md /root/hermes/vessel/STATE.md
+    echo -e "  ${GREEN}✓${RESET} archived to $BACKUP"
+    echo ""
+
+    run_wizard "/root/hermes/vessel" "8000" "$BUILD_TOKEN"
+
+    systemctl restart hermes
+    IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    echo -e "  ${ACCENT}▸${RESET} live at http://$IP"
+    echo ""
     ;;
 
   new-site)
     load_theme; banner
     SITE_NAME="${2:-}"
     if [[ -z "$SITE_NAME" ]]; then
-      echo -e "  ${BOLD}usage:${RESET} hermes new-site <name>"
+      echo -e "  ${BOLD}usage:${RESET} hermes new-site <name> [domain]"
       echo -e "  ${DIM}example: hermes new-site myblog${RESET}"
+      echo -e "  ${DIM}example: hermes new-site myblog myblog.com${RESET}"
       echo ""
       exit 1
     fi
 
-    # Find next available port starting at 8001
+    # Find next available port
     PORT=8001
     while ss -tlnp | grep -q ":$PORT "; do
       PORT=$((PORT + 1))
@@ -369,32 +493,39 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     SITE_DIR="/root/hermes/vessels/$SITE_NAME"
     SERVICE="hermes-$SITE_NAME"
     ENV_FILE="$SITE_DIR/.env"
+    DOMAIN="${3:-}"
 
-    echo -e "  ${BOLD}new site:${RESET} $SITE_NAME"
-    echo -e "  port:     $PORT"
-    echo -e "  vessel:   $SITE_DIR"
+    echo -e "  ${BOLD}new vessel:${RESET} $SITE_NAME  ${DIM}(port $PORT)${RESET}"
+    [[ -n "$DOMAIN" ]] && echo -e "  ${BOLD}domain:${RESET}     $DOMAIN"
     echo ""
-    printf "  go ahead? "
-    read -r confirm
-    echo ""
-    [[ "$confirm" != "yes" && "$confirm" != "y" ]] && \
-      echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} cancelled." && echo "" && exit 0
 
-    # Create vessel directory tree
+    # Scaffold directories and copy tree nodes
     mkdir -p "$SITE_DIR/vessel/tree" "$SITE_DIR/static"
     cp -r /root/hermes/vessel/tree/. "$SITE_DIR/vessel/tree/"
     cp /root/hermes/vessel/HECATE.md "$SITE_DIR/vessel/" 2>/dev/null || true
 
-    # Write .env for the new site
-    ORIG_KEY=$(grep ANTHROPIC_API_KEY /root/hermes/.env | cut -d= -f2-)
-    ORIG_MODEL=$(grep HERMES_MODEL= /root/hermes/.env 2>/dev/null | cut -d= -f2-)
+    # Write .env
+    ORIG_KEY=$(python3 -c "
+import re
+for line in open('/root/hermes/.env'):
+    m = re.match(r'ANTHROPIC_API_KEY=(.+)', line.strip())
+    if m: print(m.group(1).strip('\"').strip(\"'\")); break
+" 2>/dev/null)
+    ORIG_MODEL=$(python3 -c "
+import re
+for line in open('/root/hermes/.env'):
+    m = re.match(r'HERMES_MODEL=(.+)', line.strip())
+    if m: print(m.group(1).strip('\"').strip(\"'\")); break
+" 2>/dev/null)
     NEW_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
     cat > "$ENV_FILE" << ENVEOF
 ANTHROPIC_API_KEY=$ORIG_KEY
 HERMES_MODEL=${ORIG_MODEL:-claude-sonnet-4-6}
 VESSEL_DIR=$SITE_DIR/vessel
 STATIC_DIR=$SITE_DIR/static
 BUILD_TOKEN=$NEW_TOKEN
+HERMES_PORT=$PORT
 ENVEOF
 
     # Write systemd service
@@ -405,8 +536,8 @@ After=network.target
 
 [Service]
 User=root
-WorkingDirectory=$SITE_DIR
-ExecStart=/usr/bin/python3 /root/hermes/bridge.py --port $PORT
+WorkingDirectory=/root/hermes
+ExecStart=/usr/bin/python3 /root/hermes/bridge.py
 Restart=always
 RestartSec=5
 EnvironmentFile=$ENV_FILE
@@ -415,68 +546,52 @@ EnvironmentFile=$ENV_FILE
 WantedBy=multi-user.target
 SVCEOF
 
-    # Write nginx server block (domain or port-only)
-    DOMAIN="${3:-}"
+    systemctl daemon-reload
+    systemctl enable "$SERVICE" --quiet
+    systemctl start "$SERVICE"
+
+    # Run inline wizard
+    run_wizard "$SITE_DIR/vessel" "$PORT" "$NEW_TOKEN"
+
+    systemctl is-active --quiet "$SERVICE" \
+      && echo -e "  ${GREEN}✓${RESET} $SITE_NAME is running" \
+      || echo -e "  ${RED}!${RESET} $SERVICE failed — check: journalctl -u $SERVICE -n 30"
+
+    # nginx block
     if [[ -n "$DOMAIN" ]]; then
       cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
-
     root $SITE_DIR/static;
     index index.html;
-
-    location ~ ^/(chat|chat/confirm) {
-        allow 127.0.0.1;
-        allow ::1;
-        deny all;
-    }
-
+    location ~ ^/(chat|chat/confirm) { allow 127.0.0.1; allow ::1; deny all; }
     location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
-
-    location / {
-        try_files \$uri \$uri/ \$uri/index.html @bridge;
-    }
-
+    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
     location @bridge {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
         proxy_read_timeout 120s;
     }
 }
 NGEOF
       nginx -t && systemctl reload nginx
+      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
       echo -e "  ${GREEN}✓${RESET} nginx configured for $DOMAIN"
+      echo ""
+      echo -e "  ${ACCENT}▸${RESET} live at http://$DOMAIN  ${DIM}(point DNS A record → $IP)${RESET}"
+      echo -e "  ${DIM}  then: certbot --nginx -d $DOMAIN -d www.$DOMAIN${RESET}"
     else
       IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-      echo -e "  ${DIM}no domain — site accessible at http://$IP:$PORT${RESET}"
-      echo -e "  ${DIM}add domain later: hermes add-domain $SITE_NAME yourdomain.com${RESET}"
+      echo -e "  ${ACCENT}▸${RESET} live at http://$IP:$PORT"
+      echo -e "  ${DIM}  add a domain: hermes add-domain $SITE_NAME yourdomain.com${RESET}"
     fi
-
-    systemctl daemon-reload
-    systemctl enable "$SERVICE"
-    systemctl start "$SERVICE" && sleep 2
-    systemctl is-active --quiet "$SERVICE" \
-      && echo -e "  ${GREEN}✓${RESET} $SERVICE running" \
-      || echo -e "  ${RED}!${RESET} $SERVICE failed to start — check: journalctl -u $SERVICE"
-
-    echo ""
-    echo -e "  ${ACCENT}▸${RESET} vessel dir:   $SITE_DIR"
-    echo -e "  ${ACCENT}▸${RESET} build token:  $NEW_TOKEN"
-    echo -e "  ${ACCENT}▸${RESET} operator CLI: HERMES_SERVICE=$SERVICE HERMES_PORT=$PORT VESSEL_DIR=$SITE_DIR/vessel hermes chat"
-    echo ""
-    if [[ -n "$DOMAIN" ]]; then
-      echo -e "  visit http://$DOMAIN/setup to configure the vessel"
-    else
-      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-      echo -e "  visit http://$IP:$PORT/setup to configure the vessel"
-    fi
+    echo -e "  ${DIM}  build token: $NEW_TOKEN${RESET}"
     echo ""
     ;;
 
@@ -491,41 +606,29 @@ NGEOF
       exit 1
     fi
     SERVICE="hermes-$SITE_NAME"
-    PORT=$(systemctl cat "$SERVICE" 2>/dev/null | grep ExecStart | grep -o '\-\-port [0-9]*' | awk '{print $2}')
     SITE_DIR="/root/hermes/vessels/$SITE_NAME"
+    PORT=$(grep HERMES_PORT "$SITE_DIR/.env" 2>/dev/null | cut -d= -f2)
     if [[ -z "$PORT" ]]; then
-      echo -e "  ${RED}error:${RESET} site '$SITE_NAME' not found"
+      echo -e "  ${RED}error:${RESET} site '$SITE_NAME' not found or port unknown"
       exit 1
     fi
     cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
-
     root $SITE_DIR/static;
     index index.html;
-
-    location ~ ^/(chat|chat/confirm) {
-        allow 127.0.0.1;
-        allow ::1;
-        deny all;
-    }
-
+    location ~ ^/(chat|chat/confirm) { allow 127.0.0.1; allow ::1; deny all; }
     location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
-
-    location / {
-        try_files \$uri \$uri/ \$uri/index.html @bridge;
-    }
-
+    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
     location @bridge {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
         proxy_read_timeout 120s;
     }
 }
@@ -533,24 +636,27 @@ NGEOF
     nginx -t && systemctl reload nginx \
       && echo -e "\n  ${GREEN}✓${RESET} $DOMAIN now routes to $SITE_NAME" \
       || echo -e "\n  ${RED}!${RESET} nginx config error"
-    echo -e "  ${DIM}point your DNS A record to $(curl -s --max-time 3 ifconfig.me 2>/dev/null)${RESET}"
+    IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    echo -e "  ${DIM}  point your DNS A record → $IP${RESET}"
+    echo -e "  ${DIM}  then: certbot --nginx -d $DOMAIN -d www.$DOMAIN${RESET}"
     echo ""
     ;;
 
   *)
     banner
     echo -e "  ${BOLD}commands:${RESET}\n"
-    echo -e "  ${ACCENT}hermes chat${RESET}                  talk to the vessel — ask it to build anything"
-    echo -e "  ${ACCENT}hermes theme${RESET}                 show current terminal theme"
-    echo -e "  ${ACCENT}hermes theme-reset${RESET}           reset to default style"
-    echo -e "  ${ACCENT}hermes status${RESET}                service status"
-    echo -e "  ${ACCENT}hermes logs${RESET}                  live log stream"
-    echo -e "  ${ACCENT}hermes build${RESET}                 rebuild the static site"
-    echo -e "  ${ACCENT}hermes restart${RESET}               restart the bridge"
-    echo -e "  ${ACCENT}hermes new${RESET}                   rebuild vessel from scratch (archives current)"
-    echo -e "  ${ACCENT}hermes new-site <name>${RESET}       create a second vessel on this server"
-    echo -e "  ${ACCENT}hermes new-site <name> <domain>${RESET}  same, with nginx domain routing"
-    echo -e "  ${ACCENT}hermes add-domain <name> <domain>${RESET} point a domain at an existing site"
+    echo -e "  ${ACCENT}hermes chat${RESET}                     open the operator terminal"
+    echo -e "  ${ACCENT}hermes sites${RESET}                    list all vessels on this server"
+    echo -e "  ${ACCENT}hermes new${RESET}                      rebuild this vessel from scratch"
+    echo -e "  ${ACCENT}hermes new-site <name>${RESET}          create a new vessel (runs wizard)"
+    echo -e "  ${ACCENT}hermes new-site <name> <domain>${RESET} same, with domain routing"
+    echo -e "  ${ACCENT}hermes add-domain <name> <domain>${RESET}attach a domain to an existing site"
+    echo -e "  ${ACCENT}hermes theme${RESET}                    show current terminal theme"
+    echo -e "  ${ACCENT}hermes theme-reset${RESET}              reset to default style"
+    echo -e "  ${ACCENT}hermes status${RESET}                   service status"
+    echo -e "  ${ACCENT}hermes logs${RESET}                     live log stream"
+    echo -e "  ${ACCENT}hermes build${RESET}                    rebuild the static site"
+    echo -e "  ${ACCENT}hermes restart${RESET}                  restart the bridge"
     echo ""
     ;;
 

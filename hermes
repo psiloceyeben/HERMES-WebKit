@@ -363,6 +363,32 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     done
     ;;
 
+  studio)
+    # Open a tmux session with chat on the left, shell on the right.
+    # hermes studio          → main site
+    # hermes studio myblog   → specific vessel
+    SITE_ARG="${2:-}"
+    SESSION="hermes${SITE_ARG:+-$SITE_ARG}"
+
+    if ! command -v tmux &>/dev/null; then
+      echo -e "\n  installing tmux..."
+      apt-get install -y tmux -qq
+    fi
+
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+      # Already exists — just attach
+      tmux attach-session -t "$SESSION"
+    else
+      # New session: left pane = chat, right pane = shell
+      tmux new-session -d -s "$SESSION" -x "$(tput cols)" -y "$(tput lines)"
+      tmux send-keys -t "$SESSION" "hermes chat $SITE_ARG" Enter
+      tmux split-window -t "$SESSION" -h
+      tmux send-keys -t "$SESSION" "hermes sites" Enter
+      tmux select-pane -t "$SESSION" -L
+      tmux attach-session -t "$SESSION"
+    fi
+    ;;
+
   theme)
     load_theme; banner
     echo -e "  ${BOLD}current theme:${RESET}"
@@ -683,7 +709,9 @@ NGEOF
   *)
     banner
     echo -e "  ${BOLD}commands:${RESET}\n"
-    echo -e "  ${ACCENT}hermes chat${RESET}                      open the operator terminal (main site)"
+    echo -e "  ${ACCENT}hermes studio${RESET}                    open chat + shell side by side (recommended)"
+    echo -e "  ${ACCENT}hermes studio <name>${RESET}            same, for a specific vessel"
+    echo -e "  ${ACCENT}hermes chat${RESET}                     open the operator terminal (inline)"
     echo -e "  ${ACCENT}hermes chat <name>${RESET}              open terminal for a specific vessel"
     echo -e "  ${ACCENT}hermes sites${RESET}                    list all vessels on this server"
     echo -e "  ${ACCENT}hermes new${RESET}                      rebuild this vessel from scratch"

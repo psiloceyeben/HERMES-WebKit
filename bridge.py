@@ -359,16 +359,118 @@ def _parse_theme(reply: str):
     return reply, None
 
 
+
+# ── visitor chat ──────────────────────────────────────────────────────────────
+# Separate from the operator terminal. No tools, no file access, no commands.
+# 5 message limit per session, then redirects to install.
+
+_visitor_sessions: dict = {}  # session_id -> {"history": [], "count": int}
+VISITOR_MSG_LIMIT = 5
+MODEL_VISITOR = os.environ.get("HERMES_MODEL_VISITOR", MODEL_CLASSIFY)
+
+
+def _build_visitor_system(vessel_text: str, state_text: str) -> str:
+    return (
+        "You are this vessel. This is who you are:\n\n"
+        + vessel_text
+        + "\n\nCurrent memory:\n"
+        + state_text
+        + "\n\nYou are in a brief conversation with a visitor to the website. "
+        + "Answer their questions directly and in the voice of this vessel. "
+        + "Be concise — this is a web chat, not a terminal. "
+        + "No HTML. No markdown. Plain conversational text only. "
+        + "You have no tools and cannot modify anything."
+    )
+
+
+async def _visitor_reply(history: list, system: str) -> str:
+    """Single-turn visitor response — no tools, no agentic loop."""
+    resp = await asyncio.to_thread(
+        lambda: client.messages.create(
+            model=MODEL_VISITOR,
+            max_tokens=512,
+            system=system,
+            messages=history,
+        )
+    )
+    return " ".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+
+
+@app.post("/ask")
+async def ask(request: Request):
+    """
+    Visitor-facing chat. No tools. 5 message limit per session.
+    POST {"message": "...", "session_id": "..."}
+    Returns {"reply": "...", "session_id": "...", "messages_remaining": N}
+    After limit: {"reply": "...", "limit_reached": true, "redirect": "..."}
+    """
+    if not (VESSEL_DIR / "VESSEL.md").exists():
+        return JSONResponse({"error": "no vessel"}, status_code=400)
+
+    try:
+        data       = await request.json()
+        message    = data.get("message", "").strip()
+        session_id = data.get("session_id", "").strip()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    if not message:
+        return JSONResponse({"error": "message is required"}, status_code=400)
+
+    if not session_id or session_id not in _visitor_sessions:
+        session_id = str(uuid.uuid4())[:8]
+        _visitor_sessions[session_id] = {"history": [], "count": 0}
+
+    session = _visitor_sessions[session_id]
+
+    # Already at limit — don't process further
+    if session["count"] >= VISITOR_MSG_LIMIT:
+        return JSONResponse({
+            "reply":           "",
+            "session_id":      session_id,
+            "limit_reached":   True,
+            "messages_remaining": 0,
+            "redirect":        os.environ.get("VISITOR_LIMIT_REDIRECT", "https://github.com/psiloceyeben/HERMES-WebKit"),
+        })
+
+    session["history"].append({"role": "user", "content": message})
+    session["count"] += 1
+
+    ctx    = load_vessel()
+    system = _build_visitor_system(ctx["vessel"], ctx["state"] or "(no prior state)")
+    reply  = await _visitor_reply(session["history"], system)
+    session["history"].append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
+
+    remaining = VISITOR_MSG_LIMIT - session["count"]
+    log.info(f"VISITOR session={session_id} msg={session['count']}/{VISITOR_MSG_LIMIT}")
+
+    out = {
+        "reply":              reply,
+        "session_id":         session_id,
+        "messages_remaining": remaining,
+    }
+    if remaining == 0:
+        out["limit_reached"] = True
+        out["redirect"] = os.environ.get(
+            "VISITOR_LIMIT_REDIRECT",
+            "https://github.com/psiloceyeben/HERMES-WebKit"
+        )
+    return JSONResponse(out)
+
+
 # ── /chat — operator terminal ─────────────────────────────────────────────────
 
 @app.post("/chat")
 async def chat(request: Request):
     """
-    Operator chat endpoint. Supports full agentic tool use.
+    Operator terminal. Requires X-Build-Token header.
+    Supports full agentic tool use with file read/write and shell access.
     Returns either {"reply": "...", "session_id": "..."} for text replies
     or {"pending": [...], "session_id": "...", "done": false} when
     write_file / run_command actions need confirmation.
     """
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
     if not (VESSEL_DIR / "VESSEL.md").exists():
         return JSONResponse({"error": "no vessel — run setup first"}, status_code=400)
 
@@ -418,9 +520,11 @@ async def chat(request: Request):
 @app.post("/chat/confirm")
 async def chat_confirm(request: Request):
     """
-    Execute or cancel pending tool actions.
+    Execute or cancel pending tool actions. Requires X-Build-Token header.
     POST {"session_id": "...", "confirmed": true/false}
     """
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
         data       = await request.json()
         session_id = data.get("session_id", "")

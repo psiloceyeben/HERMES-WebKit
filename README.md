@@ -6,6 +6,11 @@ Natural language in. Live website out. One command to deploy. Any LLM. Your serv
 
 ### Install
 
+**npx** (any OS with Node.js):
+```
+npx github:psiloceyeben/HERMES-WebKit
+```
+
 **Windows** (PowerShell, no Node required):
 ```powershell
 irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps1 | iex

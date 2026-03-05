@@ -365,6 +365,7 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
 
   studio)
     # Open a tmux session with chat on the left, shell on the right.
+    # Click between panes with the mouse. No key combos needed.
     # hermes studio          → main site
     # hermes studio myblog   → specific vessel
     SITE_ARG="${2:-}"
@@ -375,17 +376,34 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
       apt-get install -y tmux -qq
     fi
 
-    if tmux has-session -t "$SESSION" 2>/dev/null; then
-      # Already exists — just attach
-      tmux attach-session -t "$SESSION"
+    # Write a minimal tmux config: mouse on, Ctrl+A prefix, clean status bar
+    TMUX_CONF="/root/hermes/.hermes_tmux.conf"
+    cat > "$TMUX_CONF" << 'TMUXEOF'
+set -g mouse on
+set -g prefix C-a
+unbind C-b
+bind C-a send-prefix
+set -g status-style 'bg=#1a1a1a fg=#666666'
+set -g status-left ' hermes  '
+set -g status-right ' click to switch panes · Ctrl+A D to detach '
+set -g status-left-length 20
+set -g status-right-length 50
+set -g pane-border-style 'fg=#333333'
+set -g pane-active-border-style 'fg=#666666'
+set -g base-index 1
+setw -g mode-keys vi
+TMUXEOF
+
+    if tmux -f "$TMUX_CONF" has-session -t "$SESSION" 2>/dev/null; then
+      tmux -f "$TMUX_CONF" attach-session -t "$SESSION"
     else
       # New session: left pane = chat, right pane = shell
-      tmux new-session -d -s "$SESSION" -x "$(tput cols)" -y "$(tput lines)"
-      tmux send-keys -t "$SESSION" "hermes chat $SITE_ARG" Enter
-      tmux split-window -t "$SESSION" -h
-      tmux send-keys -t "$SESSION" "hermes sites" Enter
-      tmux select-pane -t "$SESSION" -L
-      tmux attach-session -t "$SESSION"
+      tmux -f "$TMUX_CONF" new-session -d -s "$SESSION"
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes chat $SITE_ARG" Enter
+      tmux -f "$TMUX_CONF" split-window -t "$SESSION" -h -p 40
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes sites" Enter
+      tmux -f "$TMUX_CONF" select-pane -t "$SESSION" -L
+      tmux -f "$TMUX_CONF" attach-session -t "$SESSION"
     fi
     ;;
 

@@ -2,6 +2,7 @@
 # HERMES — command-line interface
 
 THEME_FILE="/root/hermes/.hermes_theme.json"
+STUDIO_CONFIG_FILE="/root/hermes/.hermes_studio.json"
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -97,6 +98,35 @@ load_theme() {
   ACCENT=$(color_code "$ACCENT_COLOR")
 }
 
+load_studio_config() {
+  # Defaults
+  _S_LEFT_PCT=60
+  _S_SHOW_BOTTOM=true
+  _S_BOTTOM_PCT=35
+  _S_BOTTOM_CMD=""   # empty = use journalctl default
+  _S_SHELL_CMD=""
+
+  if [[ -f "$STUDIO_CONFIG_FILE" ]]; then
+    _sval() {
+      python3 -c "
+import json
+try:
+    d = json.load(open('$STUDIO_CONFIG_FILE'))
+    v = d.get('$1')
+    if v is None: print('')
+    elif isinstance(v, bool): print('true' if v else 'false')
+    else: print(v)
+except: print('')
+" 2>/dev/null
+    }
+    _v=$(_sval left_pct);    [[ -n "$_v" ]] && _S_LEFT_PCT="$_v"
+    _v=$(_sval show_bottom); [[ -n "$_v" ]] && _S_SHOW_BOTTOM="$_v"
+    _v=$(_sval bottom_pct);  [[ -n "$_v" ]] && _S_BOTTOM_PCT="$_v"
+    _v=$(_sval bottom_cmd);  _S_BOTTOM_CMD="$_v"
+    _v=$(_sval shell_cmd);   _S_SHELL_CMD="$_v"
+  fi
+}
+
 save_theme() {
   python3 - "$@" << 'PYEOF'
 import json, sys
@@ -183,6 +213,31 @@ else: print('unknown')
       echo -e "  ${DIM}— terminal restyled —${RESET}"
       echo ""
       banner
+    fi
+
+    local new_studio
+    new_studio=$(echo "$raw" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+s = d.get('studio')
+if s:
+    import json as j
+    print(j.dumps(s))
+" 2>/dev/null)
+    if [[ -n "$new_studio" ]]; then
+      echo "$new_studio" | python3 -c "
+import json, sys
+updates = json.load(sys.stdin)
+config_file = '/root/hermes/.hermes_studio.json'
+try:
+    current = json.load(open(config_file))
+except:
+    current = {}
+current.update(updates)
+json.dump(current, open(config_file, 'w'), indent=2)
+" 2>/dev/null
+      echo ""
+      echo -e "  ${DIM}— studio layout updated · run hermes studio to apply —${RESET}"
     fi
 
     echo ""
@@ -364,13 +419,39 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     ;;
 
   studio)
-    # Open a tmux studio: chat (left), shell (top-right), live logs (bottom-right).
-    # Status bar shows service health + build count, refreshes every 30s.
-    # Click between panes with the mouse.
-    # hermes studio          → main site
-    # hermes studio myblog   → specific vessel
-    SITE_ARG="${2:-}"
+    # hermes studio              → open studio (main site)
+    # hermes studio <name>       → open studio for a specific vessel
+    # hermes studio config       → show current layout config
+    # hermes studio reset        → reset layout to defaults
+    STUDIO_ARG="${2:-}"
+
+    if [[ "$STUDIO_ARG" == "config" ]]; then
+      load_studio_config
+      load_theme; banner
+      echo -e "  ${BOLD}studio layout config:${RESET}"
+      echo ""
+      echo -e "  left_pct      ${_S_LEFT_PCT}%  (chat pane width)"
+      echo -e "  show_bottom   ${_S_SHOW_BOTTOM}  (logs pane visible)"
+      echo -e "  bottom_pct    ${_S_BOTTOM_PCT}%  (logs pane height)"
+      echo -e "  bottom_cmd    ${DIM}${_S_BOTTOM_CMD:-journalctl -u hermes -f (default)}${RESET}"
+      [[ -n "$_S_SHELL_CMD" ]] && echo -e "  shell_cmd     ${DIM}${_S_SHELL_CMD}${RESET}"
+      echo ""
+      echo -e "  ${DIM}to change, ask the vessel: 'show analytics in the bottom pane'${RESET}"
+      echo -e "  ${DIM}reset to defaults: hermes studio reset${RESET}"
+      echo ""
+      exit 0
+    fi
+
+    if [[ "$STUDIO_ARG" == "reset" ]]; then
+      rm -f "$STUDIO_CONFIG_FILE"
+      echo -e "\n  studio config reset to defaults\n"
+      exit 0
+    fi
+
+    # Open studio — STUDIO_ARG is a site name or empty
+    SITE_ARG="$STUDIO_ARG"
     SESSION="hermes${SITE_ARG:+-$SITE_ARG}"
+    load_studio_config
 
     if ! command -v tmux &>/dev/null; then
       echo -e "\n  installing tmux..."
@@ -386,8 +467,8 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
 ENV_FILE="/root/hermes/.env"
 TOKEN=$(python3 -c "
 import re, os
-if os.path.exists('$ENV_FILE'):
-    for line in open('$ENV_FILE'):
+if os.path.exists('/root/hermes/.env'):
+    for line in open('/root/hermes/.env'):
         m = re.match(r'BUILD_TOKEN=(.+)', line.strip())
         if m: print(m.group(1).strip('\"').strip(\"'\")); break
 " 2>/dev/null)
@@ -405,7 +486,7 @@ echo " $DOT ${BUILDS:-?} builds  Ctrl+A D to detach "
 STATUSEOF
     chmod +x "$STATUS_SCRIPT"
 
-    # Tmux config: mouse on, Ctrl+A prefix, status bar with live script
+    # Tmux config: mouse on, Ctrl+A prefix, live status bar
     cat > "$TMUX_CONF" << 'TMUXEOF'
 set -g mouse on
 set -g prefix C-a
@@ -427,15 +508,24 @@ TMUXEOF
     tmux kill-session -t "$SESSION" 2>/dev/null || true
 
     LOG_SVC="hermes${SITE_ARG:+-$SITE_ARG}"
+    RIGHT_PCT=$((100 - _S_LEFT_PCT))
+
     tmux -f "$TMUX_CONF" new-session -d -s "$SESSION"
-    # Left pane (60%): operator chat
+    # Left pane: operator chat
     tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes chat $SITE_ARG" Enter
-    # Split right (40%): shell
-    tmux -f "$TMUX_CONF" split-window -t "$SESSION" -h -p 40
-    tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes sites" Enter
-    # Split bottom-right (35% of right): live logs
-    tmux -f "$TMUX_CONF" split-window -t "$SESSION" -v -p 35
-    tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "journalctl -u $LOG_SVC -f --no-pager -n 10" Enter
+    # Right column: shell
+    tmux -f "$TMUX_CONF" split-window -t "$SESSION" -h -p "$RIGHT_PCT"
+    if [[ -n "$_S_SHELL_CMD" ]]; then
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "$_S_SHELL_CMD" Enter
+    else
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes sites" Enter
+    fi
+    # Bottom-right pane: logs or custom command
+    if [[ "$_S_SHOW_BOTTOM" == "true" ]]; then
+      tmux -f "$TMUX_CONF" split-window -t "$SESSION" -v -p "$_S_BOTTOM_PCT"
+      BOTTOM_CMD="${_S_BOTTOM_CMD:-journalctl -u $LOG_SVC -f --no-pager -n 10}"
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "$BOTTOM_CMD" Enter
+    fi
     # Focus back to chat
     tmux -f "$TMUX_CONF" select-pane -t "$SESSION" -L
     tmux -f "$TMUX_CONF" attach-session -t "$SESSION"
@@ -761,8 +851,10 @@ NGEOF
   *)
     banner
     echo -e "  ${BOLD}commands:${RESET}\n"
-    echo -e "  ${ACCENT}hermes studio${RESET}                    open chat + shell side by side (recommended)"
+    echo -e "  ${ACCENT}hermes studio${RESET}                    open chat + shell + logs (recommended)"
     echo -e "  ${ACCENT}hermes studio <name>${RESET}            same, for a specific vessel"
+    echo -e "  ${ACCENT}hermes studio config${RESET}            show current studio layout config"
+    echo -e "  ${ACCENT}hermes studio reset${RESET}             reset studio layout to defaults"
     echo -e "  ${ACCENT}hermes chat${RESET}                     open the operator terminal (inline)"
     echo -e "  ${ACCENT}hermes chat <name>${RESET}              open terminal for a specific vessel"
     echo -e "  ${ACCENT}hermes sites${RESET}                    list all vessels on this server"

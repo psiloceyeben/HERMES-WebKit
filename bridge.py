@@ -102,6 +102,36 @@ Generate real ASCII/unicode art for the banner. Make it completely immersive.
 Only include THEME_JSON...THEME_END if the operator explicitly asks to restyle.
 """
 
+
+CHAT_STUDIO_INSTRUCTIONS = """
+
+STUDIO LAYOUT: If the operator asks to change the studio layout — what shows in each pane,
+how much space the chat takes, or what the bottom panel displays — include a STUDIO_JSON block
+at the very END of your reply in this exact format:
+
+STUDIO_JSON
+{
+  "left_pct": 60,
+  "show_bottom": true,
+  "bottom_pct": 35,
+  "bottom_cmd": "journalctl -u hermes -f --no-pager -n 10",
+  "shell_cmd": ""
+}
+STUDIO_END
+
+Fields (only include what is changing):
+  left_pct     - chat pane width as % of screen (40-75, default 60)
+  show_bottom  - true/false — show the bottom-right pane (default true)
+  bottom_pct   - height % of bottom pane within the right column (20-50, default 35)
+  bottom_cmd   - command in the bottom-right pane. Examples:
+                   "journalctl -u hermes -f --no-pager -n 10"   ← live logs (default)
+                   "watch -n5 'curl -s http://127.0.0.1:8000/analytics'"
+                   "htop"
+  shell_cmd    - starting command for the top-right shell (empty = blank shell)
+
+Only include STUDIO_JSON...STUDIO_END if the operator explicitly asks to change the layout.
+"""
+
 # ── chat — direct terminal conversation ──────────────────────────────────────
 
 
@@ -342,6 +372,7 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> 
         + "For casual conversation, just reply in plain text. No HTML. No markdown. "
         + "Conversational, direct, and present. Remember the full session."
         + CHAT_THEME_INSTRUCTIONS
+        + CHAT_STUDIO_INSTRUCTIONS
     )
 
 
@@ -358,6 +389,20 @@ def _parse_theme(reply: str):
             log.warning("THEME parse error: " + str(e))
     return reply, None
 
+
+
+
+def _parse_studio(reply: str):
+    """Extract STUDIO_JSON block from reply. Returns (clean_reply, studio_dict_or_None)."""
+    sm = re.search(r"\nSTUDIO_JSON\n(.*?)\nSTUDIO_END", reply, re.DOTALL)
+    if sm:
+        try:
+            studio = json.loads(sm.group(1).strip())
+            reply = (reply[:sm.start()] + reply[sm.end():]).strip()
+            return reply, studio
+        except Exception as e:
+            log.warning("STUDIO parse error: " + str(e))
+    return reply, None
 
 
 # ── visitor chat ──────────────────────────────────────────────────────────────
@@ -502,11 +547,15 @@ async def chat(request: Request):
 
     if result["done"]:
         reply, theme = _parse_theme(result["reply"])
+        reply, studio = _parse_studio(reply)
         log.info("CHAT session=" + session_id + " turn=" + str(len(history) // 2))
         out = {"reply": reply, "session_id": session_id}
         if theme:
             out["theme"] = theme
             log.info("THEME: " + str(list(theme.keys())))
+        if studio:
+            out["studio"] = studio
+            log.info("STUDIO: " + str(list(studio.keys())))
         return JSONResponse(out)
     else:
         log.info("CHAT session=" + session_id + " — awaiting confirmation")
@@ -559,9 +608,12 @@ async def chat_confirm(request: Request):
 
     if result["done"]:
         reply, theme = _parse_theme(result["reply"])
+        reply, studio = _parse_studio(reply)
         out = {"reply": reply, "session_id": session_id}
         if theme:
             out["theme"] = theme
+        if studio:
+            out["studio"] = studio
         return JSONResponse(out)
     else:
         return JSONResponse({

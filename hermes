@@ -320,16 +320,237 @@ print(json.dumps({'message': sys.argv[1], 'session_id': sys.argv[2]}))
     echo ""
     ;;
 
+  new)
+    load_theme; banner
+    echo -e "  ${BOLD}rebuild vessel from scratch${RESET}"
+    echo ""
+    echo -e "  This will archive the current VESSEL.md and STATE.md and"
+    echo -e "  restart the setup wizard. The website will redirect to /setup"
+    echo -e "  until you complete the wizard again."
+    echo ""
+    echo -e "  ${RED}this cannot be undone without restoring from the archive${RESET}"
+    echo ""
+    printf "  type ${BOLD}yes${RESET} to confirm: "
+    read -r confirm
+    echo ""
+    if [[ "$confirm" == "yes" ]]; then
+      BACKUP="/root/hermes/vessel_archive_$(date +%Y%m%d_%H%M%S)"
+      mkdir -p "$BACKUP"
+      [[ -f /root/hermes/vessel/VESSEL.md ]] && cp /root/hermes/vessel/VESSEL.md "$BACKUP/"
+      [[ -f /root/hermes/vessel/STATE.md  ]] && cp /root/hermes/vessel/STATE.md  "$BACKUP/"
+      rm -f /root/hermes/vessel/VESSEL.md
+      systemctl restart hermes && sleep 1
+      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+      echo -e "  ${GREEN}✓${RESET} archived to $BACKUP"
+      echo -e "  ${ACCENT}▸${RESET} visit http://$IP/setup to configure the new vessel"
+      echo ""
+    else
+      echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} cancelled — nothing changed."
+      echo ""
+    fi
+    ;;
+
+  new-site)
+    load_theme; banner
+    SITE_NAME="${2:-}"
+    if [[ -z "$SITE_NAME" ]]; then
+      echo -e "  ${BOLD}usage:${RESET} hermes new-site <name>"
+      echo -e "  ${DIM}example: hermes new-site myblog${RESET}"
+      echo ""
+      exit 1
+    fi
+
+    # Find next available port starting at 8001
+    PORT=8001
+    while ss -tlnp | grep -q ":$PORT "; do
+      PORT=$((PORT + 1))
+    done
+
+    SITE_DIR="/root/hermes/vessels/$SITE_NAME"
+    SERVICE="hermes-$SITE_NAME"
+    ENV_FILE="$SITE_DIR/.env"
+
+    echo -e "  ${BOLD}new site:${RESET} $SITE_NAME"
+    echo -e "  port:     $PORT"
+    echo -e "  vessel:   $SITE_DIR"
+    echo ""
+    printf "  go ahead? "
+    read -r confirm
+    echo ""
+    [[ "$confirm" != "yes" && "$confirm" != "y" ]] && \
+      echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} cancelled." && echo "" && exit 0
+
+    # Create vessel directory tree
+    mkdir -p "$SITE_DIR/vessel/tree" "$SITE_DIR/static"
+    cp -r /root/hermes/vessel/tree/. "$SITE_DIR/vessel/tree/"
+    cp /root/hermes/vessel/HECATE.md "$SITE_DIR/vessel/" 2>/dev/null || true
+
+    # Write .env for the new site
+    ORIG_KEY=$(grep ANTHROPIC_API_KEY /root/hermes/.env | cut -d= -f2-)
+    ORIG_MODEL=$(grep HERMES_MODEL= /root/hermes/.env 2>/dev/null | cut -d= -f2-)
+    NEW_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    cat > "$ENV_FILE" << ENVEOF
+ANTHROPIC_API_KEY=$ORIG_KEY
+HERMES_MODEL=${ORIG_MODEL:-claude-sonnet-4-6}
+VESSEL_DIR=$SITE_DIR/vessel
+STATIC_DIR=$SITE_DIR/static
+BUILD_TOKEN=$NEW_TOKEN
+ENVEOF
+
+    # Write systemd service
+    cat > "/etc/systemd/system/$SERVICE.service" << SVCEOF
+[Unit]
+Description=HERMES vessel — $SITE_NAME
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=$SITE_DIR
+ExecStart=/usr/bin/python3 /root/hermes/bridge.py --port $PORT
+Restart=always
+RestartSec=5
+EnvironmentFile=$ENV_FILE
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    # Write nginx server block (domain or port-only)
+    DOMAIN="${3:-}"
+    if [[ -n "$DOMAIN" ]]; then
+      cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
+server {
+    listen 80;
+    server_name $DOMAIN www.$DOMAIN;
+
+    root $SITE_DIR/static;
+    index index.html;
+
+    location ~ ^/(chat|chat/confirm) {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+    }
+
+    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
+    }
+
+    location / {
+        try_files \$uri \$uri/ \$uri/index.html @bridge;
+    }
+
+    location @bridge {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
+    }
+}
+NGEOF
+      nginx -t && systemctl reload nginx
+      echo -e "  ${GREEN}✓${RESET} nginx configured for $DOMAIN"
+    else
+      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+      echo -e "  ${DIM}no domain — site accessible at http://$IP:$PORT${RESET}"
+      echo -e "  ${DIM}add domain later: hermes add-domain $SITE_NAME yourdomain.com${RESET}"
+    fi
+
+    systemctl daemon-reload
+    systemctl enable "$SERVICE"
+    systemctl start "$SERVICE" && sleep 2
+    systemctl is-active --quiet "$SERVICE" \
+      && echo -e "  ${GREEN}✓${RESET} $SERVICE running" \
+      || echo -e "  ${RED}!${RESET} $SERVICE failed to start — check: journalctl -u $SERVICE"
+
+    echo ""
+    echo -e "  ${ACCENT}▸${RESET} vessel dir:   $SITE_DIR"
+    echo -e "  ${ACCENT}▸${RESET} build token:  $NEW_TOKEN"
+    echo -e "  ${ACCENT}▸${RESET} operator CLI: HERMES_SERVICE=$SERVICE HERMES_PORT=$PORT VESSEL_DIR=$SITE_DIR/vessel hermes chat"
+    echo ""
+    if [[ -n "$DOMAIN" ]]; then
+      echo -e "  visit http://$DOMAIN/setup to configure the vessel"
+    else
+      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+      echo -e "  visit http://$IP:$PORT/setup to configure the vessel"
+    fi
+    echo ""
+    ;;
+
+  add-domain)
+    load_theme; banner
+    SITE_NAME="${2:-}"
+    DOMAIN="${3:-}"
+    if [[ -z "$SITE_NAME" || -z "$DOMAIN" ]]; then
+      echo -e "  ${BOLD}usage:${RESET} hermes add-domain <site-name> <domain>"
+      echo -e "  ${DIM}example: hermes add-domain myblog myblog.com${RESET}"
+      echo ""
+      exit 1
+    fi
+    SERVICE="hermes-$SITE_NAME"
+    PORT=$(systemctl cat "$SERVICE" 2>/dev/null | grep ExecStart | grep -o '\-\-port [0-9]*' | awk '{print $2}')
+    SITE_DIR="/root/hermes/vessels/$SITE_NAME"
+    if [[ -z "$PORT" ]]; then
+      echo -e "  ${RED}error:${RESET} site '$SITE_NAME' not found"
+      exit 1
+    fi
+    cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
+server {
+    listen 80;
+    server_name $DOMAIN www.$DOMAIN;
+
+    root $SITE_DIR/static;
+    index index.html;
+
+    location ~ ^/(chat|chat/confirm) {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+    }
+
+    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
+    }
+
+    location / {
+        try_files \$uri \$uri/ \$uri/index.html @bridge;
+    }
+
+    location @bridge {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_set_header   Host            \$host;
+        proxy_set_header   X-Real-IP       \$remote_addr;
+        proxy_read_timeout 120s;
+    }
+}
+NGEOF
+    nginx -t && systemctl reload nginx \
+      && echo -e "\n  ${GREEN}✓${RESET} $DOMAIN now routes to $SITE_NAME" \
+      || echo -e "\n  ${RED}!${RESET} nginx config error"
+    echo -e "  ${DIM}point your DNS A record to $(curl -s --max-time 3 ifconfig.me 2>/dev/null)${RESET}"
+    echo ""
+    ;;
+
   *)
     banner
     echo -e "  ${BOLD}commands:${RESET}\n"
-    echo -e "  ${ACCENT}hermes chat${RESET}         talk to the vessel — ask it to build anything"
-    echo -e "  ${ACCENT}hermes theme${RESET}        show current terminal theme"
-    echo -e "  ${ACCENT}hermes theme-reset${RESET}  reset to default style"
-    echo -e "  ${ACCENT}hermes status${RESET}       service status"
-    echo -e "  ${ACCENT}hermes logs${RESET}         live log stream"
-    echo -e "  ${ACCENT}hermes build${RESET}        rebuild the static site"
-    echo -e "  ${ACCENT}hermes restart${RESET}      restart the bridge"
+    echo -e "  ${ACCENT}hermes chat${RESET}                  talk to the vessel — ask it to build anything"
+    echo -e "  ${ACCENT}hermes theme${RESET}                 show current terminal theme"
+    echo -e "  ${ACCENT}hermes theme-reset${RESET}           reset to default style"
+    echo -e "  ${ACCENT}hermes status${RESET}                service status"
+    echo -e "  ${ACCENT}hermes logs${RESET}                  live log stream"
+    echo -e "  ${ACCENT}hermes build${RESET}                 rebuild the static site"
+    echo -e "  ${ACCENT}hermes restart${RESET}               restart the bridge"
+    echo -e "  ${ACCENT}hermes new${RESET}                   rebuild vessel from scratch (archives current)"
+    echo -e "  ${ACCENT}hermes new-site <name>${RESET}       create a second vessel on this server"
+    echo -e "  ${ACCENT}hermes new-site <name> <domain>${RESET}  same, with nginx domain routing"
+    echo -e "  ${ACCENT}hermes add-domain <name> <domain>${RESET} point a domain at an existing site"
     echo ""
     ;;
 

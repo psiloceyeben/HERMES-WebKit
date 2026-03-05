@@ -283,6 +283,11 @@ async def _operator_loop(session_id: str, history: list, system: str) -> dict:
 
             # Dangerous tools → pause for confirmation
             if dangerous_calls:
+                # Extract any explanatory text the vessel wrote alongside tool calls
+                vessel_text = " ".join(
+                    b.text for b in resp.content if hasattr(b, "text") and b.text.strip()
+                ).strip()
+
                 _chat_pending[session_id] = {
                     "history":            history,
                     "safe_results":       tool_results,
@@ -299,7 +304,6 @@ async def _operator_loop(session_id: str, history: list, system: str) -> dict:
                             "type":        "write",
                             "path":        tc.input["path"],
                             "description": tc.input.get("description", ""),
-                            "preview":     tc.input.get("content", "")[:300],
                         })
                     elif tc.name == "run_command":
                         actions.append({
@@ -307,7 +311,7 @@ async def _operator_loop(session_id: str, history: list, system: str) -> dict:
                             "command":     tc.input["command"],
                             "description": tc.input.get("description", ""),
                         })
-                return {"done": False, "pending": actions}
+                return {"done": False, "pending": actions, "vessel_text": vessel_text}
 
             # Only safe tools — continue the loop
             history.append({"role": "user", "content": tool_results})
@@ -332,6 +336,9 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> 
         + "Use them when the operator asks you to build features, make changes, or modify the website. "
         + "Always read relevant files first to understand the current structure before writing. "
         + "write_file and run_command require operator confirmation — the system pauses automatically. "
+        + "Before calling write_file or run_command, always write a short plain-text explanation "
+        + "of what you are about to do and why — in natural language, not technical jargon. "
+        + "The operator just needs to understand the intent, not the implementation details. "
         + "For casual conversation, just reply in plain text. No HTML. No markdown. "
         + "Conversational, direct, and present. Remember the full session."
         + CHAT_THEME_INSTRUCTIONS

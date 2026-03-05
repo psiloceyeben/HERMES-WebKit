@@ -145,38 +145,50 @@ else: print('unknown')
     print_divider
 
   elif [[ "$kind" == "pending" ]]; then
-    # Show proposed changes and ask for confirmation
-    echo ""
-    echo -e "  ${YELLOW}▸ proposed changes:${RESET}"
+    # Show vessel's narration if it explained what it's about to do
+    local vessel_text
+    vessel_text=$(echo "$raw" | python3 -c "
+import json, sys
+print(json.load(sys.stdin).get('vessel_text', ''))
+" 2>/dev/null)
+    if [[ -n "$vessel_text" ]]; then
+      echo ""
+      print_vessel "$vessel_text"
+    fi
+
+    # Show what it plans to do — descriptions only, no raw paths/commands
     echo ""
     echo "$raw" | python3 -c "
 import json, sys
 actions = json.load(sys.stdin).get('pending', [])
-for i, a in enumerate(actions, 1):
-    if a['type'] == 'write':
-        print(f\"  {i}.  WRITE  {a['path']}\")
-        if a.get('description'):
-            print(f\"       {a['description']}\")
-        if a.get('preview'):
-            preview = a['preview'][:120].replace('\n', ' ')
-            print(f\"       preview: {preview}...\")
-    elif a['type'] == 'run':
-        print(f\"  {i}.  RUN    {a['command']}\")
-        if a.get('description'):
-            print(f\"       {a['description']}\")
+descs = [a.get('description','') for a in actions if a.get('description')]
+if descs:
+    for d in descs:
+        print(f'  · {d}')
 " 2>/dev/null
     echo ""
-    printf "  ${BOLD}confirm?${RESET} [y/n] "
+
+    # Ask conversationally
+    printf "  ${ACCENT}${VESSEL_LABEL}:${RESET} shall I go ahead? "
     read -r confirm
     echo ""
 
-    local confirmed="false"
-    if [[ "${confirm,,}" == "y" || "${confirm,,}" == "yes" ]]; then
-      confirmed="true"
-      echo -e "  ${ACCENT}▸ executing...${RESET}"
+    # Accept any natural affirmative or negative
+    local confirmed
+    confirmed=$(python3 -c "
+import sys
+msg = sys.argv[1].lower().strip()
+yes_words = {'y','yes','yeah','yep','yup','sure','ok','okay','go','do it',
+             'proceed','absolutely','sounds good','go ahead','definitely',
+             'please','do that','make it so','let s go','lets go','affirmative'}
+print('True' if any(w in msg for w in yes_words) else 'False')
+" "$confirm" 2>/dev/null || echo "False")
+
+    if [[ "$confirmed" == "True" ]]; then
+      echo -e "  ${ACCENT}▸${RESET} ${DIM}working...${RESET}"
       echo ""
     else
-      echo -e "  ${DIM}cancelled.${RESET}"
+      echo -e "  ${ACCENT}${VESSEL_LABEL}:${RESET} alright, leaving it as is."
       echo ""
     fi
 
@@ -191,7 +203,7 @@ print(json.dumps({'session_id': '$session_id', 'confirmed': $confirmed}))
       -H "Content-Type: application/json" \
       -d "$confirm_payload")
 
-    # Recursively handle the response (may chain into another pending)
+    # Recursively handle — may chain into another confirmation if more steps
     handle_response "$confirm_raw" "$session_id"
 
   elif [[ "$kind" == "error" ]]; then

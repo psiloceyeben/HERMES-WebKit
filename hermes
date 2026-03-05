@@ -482,7 +482,7 @@ except: print('?')
 " 2>/dev/null)
 STATUS=$(systemctl is-active hermes 2>/dev/null)
 [ "$STATUS" = "active" ] && DOT="●" || DOT="○"
-echo " $DOT ${BUILDS:-?} builds  Ctrl+A D to detach "
+echo " $DOT ${BUILDS:-?} builds  double-click here to detach "
 STATUSEOF
     chmod +x "$STATUS_SCRIPT"
 
@@ -502,6 +502,8 @@ set -g pane-border-style 'fg=#333333'
 set -g pane-active-border-style 'fg=#666666'
 set -g base-index 1
 setw -g mode-keys vi
+# Double-click status bar to detach (mouse-only exit)
+bind-key -T root DoubleClick1Status detach-client
 TMUXEOF
 
     # Always recreate for a clean layout

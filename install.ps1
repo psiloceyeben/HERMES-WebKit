@@ -227,7 +227,7 @@ SSH @"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq python3 python3-pip nginx ufw git
-pip3 install -q --break-system-packages fastapi uvicorn anthropic 2>/dev/null || pip3 install -q fastapi uvicorn anthropic
+pip3 install -q --break-system-packages fastapi uvicorn anthropic python-dotenv 2>/dev/null || pip3 install -q fastapi uvicorn anthropic python-dotenv
 "@
 Write-Info "  System packages installed."
 

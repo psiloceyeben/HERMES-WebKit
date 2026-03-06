@@ -21,7 +21,7 @@ irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps
 curl -sL https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/run | sudo bash
 ```
 
-One line. Four prompts. Live website.
+One line. Live website.
 
 ---
 
@@ -31,7 +31,7 @@ HERMES WEBKIT is an open source system that turns a plain English description in
 
 The routing tree is what makes the output genuinely different from a template. When you describe a change -- "add an about section, warm tone, mention the 2019 founding" -- that description passes through HECATE for classification, flows down through the relevant sephiroth nodes, crosses the path transformations between them, and arrives at MALKUTH which renders the HTML. A page built with that instruction produces structurally different output than one built with "add an about section, technical tone, list the founding team" -- because the routing tree treated them differently, not because fields in a template were swapped.
 
-Visitors see the generated page. They do not interact with the AI by default. If you want visitors to be able to ask questions or interact with the site, that is an optional feature -- a chat interface that makes an API call per visitor message. It does not run unless you explicitly add it.
+Visitors see the generated page. Every page includes a visitor chat input -- a lightweight widget injected automatically into every build that lets visitors ask questions or interact with the site's identity. One API call per visitor message. The routing tree applies to visitor responses in the same way it applies to builds.
 
 The default model provider is Anthropic (Sonnet for rendering, Haiku for classification). Other providers are supported -- set `HERMES_MODEL` and `HERMES_MODEL_HECATE` in `.env` to use OpenAI, or point them at a local Ollama endpoint for zero API cost. The bridge uses a single client initialisation that can be swapped to any provider with a compatible chat completions interface.
 
@@ -89,7 +89,7 @@ No Python, no WSL, no additional software required. Windows 10 and 11 have every
 .\install.ps1
 ```
 
-The installer prompts for your Hetzner API key, Anthropic API key, and optional domain name. Then it creates a VPS, generates an SSH key, deploys the code, configures nginx and systemd, and gives you a live URL.
+The installer asks for your Hetzner API key, Anthropic API key, optional domain name, and six questions about your vessel (purpose, voice, knowledge, visitor outcome, what makes it yours, and contact). It then creates a VPS, generates an SSH key, deploys the code, configures nginx and systemd, triggers the first build, and gives you a live URL.
 
 **Linux (already on a server):**
 
@@ -105,16 +105,16 @@ The `run` script installs dependencies, configures nginx and systemd, prompts fo
 
 ### Step 4 -- The setup wizard
 
-When the installer finishes, open the URL it gives you. On a fresh deploy with no VESSEL.md, visiting the site redirects you to `/setup` -- a browser-based wizard with eight questions:
+The Windows installer (`install.ps1`) asks the vessel questions during install -- you answer them in your terminal before the server is created, and the first build runs automatically. No browser visit required.
+
+If you used the Linux `run` script, or want to reconfigure later, visit `/setup` in a browser -- a wizard with six questions:
 
 1. What is your website called?
 2. What is it for -- and who is it for?
 3. What voice or tone?
 4. What does it know about?
 5. What do you want visitors to do or feel when they leave?
-6. What makes this specific to you?
-7. What should it never do or say?
-8. Your name or contact (optional)
+6. What makes this specific to you? (Your name, location, contact)
 
 Click **Build vessel** and HERMES writes your VESSEL.md, runs it through the tree, and serves your site. The whole process takes under a minute.
 
@@ -143,7 +143,7 @@ If you provided a domain during `install.ps1`, the installer handles certbot for
 The installer prints an SSH command when it finishes. It looks like this:
 
 ```
-ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP
+ssh -i ~/.ssh/hermes_ed25519 root@YOUR_SERVER_IP
 ```
 
 Run that from your terminal (Windows Terminal, PowerShell, or any SSH client). This connects you to the server where HERMES is running. Everything from here happens on the server over that SSH connection.
@@ -154,7 +154,7 @@ Once connected, open the operator terminal:
 hermes studio
 ```
 
-This splits your terminal into two panes -- chat on the left, shell on the right. Click between them with the mouse. From the chat pane you can talk to the vessel, ask it to build features, or restyle the site. From the shell pane you can run any of the other `hermes` commands without leaving.
+This splits your terminal into three panes -- chat on the left (60%), shell top-right, live logs bottom-right. Click between them with the mouse. From the chat pane you can talk to the vessel, ask it to build features, or restyle the site. From the shell pane you can run any of the other `hermes` commands without leaving.
 
 That SSH connection is your back door into the site. Visitors reach the site through the browser at your URL. You reach it through the terminal over SSH. The two paths are completely separate -- visitors never touch the operator terminal and cannot reach it.
 
@@ -329,7 +329,7 @@ By default HERMES produces static output. One build, one set of HTML files, serv
 - A `POST /build` request
 - Editing vessel files and restarting the bridge
 
-**Interactive chat** is optional. If you want visitors to be able to type questions and receive AI responses, the chat interface makes one API call per visitor message. The routing tree applies to chat responses in the same way it applies to builds -- every visitor message passes through HECATE and the relevant nodes before reaching MALKUTH for output.
+**Visitor chat** is built in. Every page includes a chat input injected automatically at build time -- visitors can type questions and receive AI responses. One API call per visitor message. Every visitor message passes through HECATE and the relevant nodes before reaching MALKUTH for output, the same routing the build uses.
 
 ---
 
@@ -338,7 +338,7 @@ By default HERMES produces static output. One build, one set of HTML files, serv
 ```
 hermeswebkit/
   bridge.py              the FastAPI bridge -- the only code in the system
-  install.ps1            PowerShell installer -- four inputs to a live site
+  install.ps1            PowerShell installer -- guides you through setup, deploys automatically
   run                    bash setup script for Linux servers
   hermes                 operator CLI -- talk to the vessel from the terminal
   .env.example           template for environment variables
@@ -376,21 +376,23 @@ Files generated at install time (not committed):
 
 ## The operator terminal
 
-The operator terminal runs on the server. To use it, SSH into your server first, then run `hermes` commands. The installer prints the SSH command when it finishes -- it looks like `ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP`.
+The operator terminal runs on the server. To use it, SSH into your server first, then run `hermes` commands. The installer saves the connection details to your Desktop (`hermes-connection.txt`) and prints the SSH command when it finishes -- it looks like `ssh -i ~/.ssh/hermes_ed25519 root@YOUR_SERVER_IP`.
 
-Once connected, `hermes studio` is the main way to work -- it opens a split view with chat on the left and a shell on the right, so you can talk to the vessel and run commands at the same time without switching windows.
+Once connected, `hermes studio` is the main way to work -- it opens a three-pane view with chat on the left, shell top-right, and live logs bottom-right, so you can talk to the vessel, run commands, and watch the bridge output at the same time without switching windows.
 
 ```
-hermes studio       open chat + shell side by side (recommended)
-hermes chat         open the conversation terminal inline
-hermes sites        list all vessels on this server
-hermes new-site     create a second vessel with its own identity
-hermes theme        show the current terminal theme
-hermes theme-reset  reset terminal style to default
-hermes status       show the systemd service status
-hermes logs         stream live logs (ctrl+c to exit)
-hermes build        trigger a site rebuild
-hermes restart      restart the bridge service
+hermes studio                open chat + shell + logs (recommended)
+hermes chat                  open the conversation terminal inline
+hermes sites                 list all vessels on this server
+hermes new-site              create a second vessel with its own identity
+hermes add-domain <n> <d>    point a domain at an existing vessel
+hermes theme                 show the current terminal theme
+hermes theme-reset           reset terminal style to default
+hermes status                show the systemd service status
+hermes logs                  stream live logs (ctrl+c to exit)
+hermes build [site] [msg]    trigger a rebuild (optionally specify vessel and prompt)
+hermes analytics [site]      show 7-day visitor sparkline and page counts
+hermes restart               restart the bridge service
 ```
 
 ### Talking to the vessel
@@ -454,7 +456,12 @@ The vessel generates ASCII art, borders, prompts, and dividers from scratch -- s
 
 **Theming the wizard** -- edit `vessel/WIZARD.md` to change the atmosphere, voice, and greeting of the setup wizard. See `WIZARD.md` in the repo root for examples (mushroom patch, old timey bar, and more).
 
-**Multiple websites on one server** -- each website is a vessel directory. Run multiple bridge instances on different ports, each pointing at a different vessel directory via `VESSEL_DIR`. Configure nginx to route each domain to the appropriate port.
+**Multiple websites on one server** -- use `hermes new-site` to add a vessel. It asks the same six questions, creates a new vessel directory, launches a bridge on the next available port, and configures nginx automatically. Each site has its own identity, its own tree, and its own static output.
+
+```bash
+hermes new-site    # walks through setup, deploys automatically
+hermes sites       # list all vessels and their ports
+```
 
 ```
 prometheus7.com  ->  bridge on :8000  VESSEL_DIR=/root/hermes/vessels/prometheus7
@@ -477,20 +484,23 @@ Everything runs on the server. SSH in first, then use the `hermes` commands.
 
 ```bash
 # Connect to your server
-ssh -i ~/.hermes/id_ed25519 root@YOUR_SERVER_IP
+ssh -i ~/.ssh/hermes_ed25519 root@YOUR_SERVER_IP
 
-# Open the operator terminal (chat left, shell right — click to switch)
+# Open the operator terminal (chat left, shell top-right, logs bottom-right)
 hermes studio
 
 # Or just the chat if you prefer
 hermes chat
 
 # Other commands
-hermes sites         list all vessels on this server
-hermes status        check the service is running
-hermes logs          stream live logs
-hermes restart       restart after manual edits to bridge.py
-hermes build         rebuild the static site
+hermes sites                 list all vessels on this server
+hermes status                check the service is running
+hermes logs                  stream live logs
+hermes restart               restart after manual edits to bridge.py
+hermes build                 rebuild the static site
+hermes build blog "add a dark banner"   rebuild a specific vessel with a prompt
+hermes analytics             show 7-day visitor counts
+hermes analytics blog        show visitor counts for a specific vessel
 
 # Edit the vessel directly
 nano /root/hermes/vessel/VESSEL.md

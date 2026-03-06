@@ -464,8 +464,10 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> 
         + "of what you are about to do and why — in natural language, not technical jargon. "
         + "The operator just needs to understand the intent, not the implementation details. "
         + "For casual conversation, just reply in plain text. No HTML. No markdown. "
-        + "Conversational, direct, and present. Remember the full session. To trigger a site rebuild, read your .env file (VESSEL_DIR/../.env or the path in your env) to get BUILD_TOKEN and HERMES_PORT, then use run_command with the curl build endpoint."
-                + CHAT_THEME_INSTRUCTIONS
+        + "Conversational, direct, and present. Remember the full session. Static files live at /root/hermes/static/ — write new HTML pages there directly. "
+        + "To trigger a rebuild: read /root/hermes/.env for BUILD_TOKEN and HERMES_PORT (default 8000), "
+        + "then run: curl -s -X POST http://127.0.0.1:PORT/build -H 'X-Build-Token: TOKEN' -d 'prompt'."
+        + CHAT_THEME_INSTRUCTIONS
         + CHAT_STUDIO_INSTRUCTIONS
     )
 

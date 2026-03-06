@@ -531,7 +531,7 @@ TMUXEOF
     # Bottom-right pane: logs or custom command
     if [[ "$_S_SHOW_BOTTOM" == "true" ]]; then
       tmux -f "$TMUX_CONF" split-window -t "$SESSION" -v -p "$_S_BOTTOM_PCT"
-      BOTTOM_CMD="${_S_BOTTOM_CMD:-journalctl -u $LOG_SVC -f --no-pager -n 10}"
+      BOTTOM_CMD="${_S_BOTTOM_CMD:-watch -n2 -t '[ -f /root/hermes/.last_route ] && cat /root/hermes/.last_route || echo "  waiting for first route..."'}"
       tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "$BOTTOM_CMD" Enter
     fi
     # Focus back to chat

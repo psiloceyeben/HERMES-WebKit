@@ -874,6 +874,20 @@ Return the route JSON."""
         )
         log.info(f"HECATE route: {path_str}")
 
+        # Write persistent route display for studio logs pane
+        try:
+            NL = chr(10)
+            node_str = " → ".join(nodes)
+            lines = ["  HECATE route", "", "  " + node_str, ""]
+            for t in transitions:
+                lines.append("  " + t["path"] + "  (" + t["from"] + " → " + t["to"] + ")")
+                if t.get("quality"):
+                    lines.append("  " + t["quality"])
+                lines.append("")
+            open("/root/hermes/.last_route", "w").write(NL.join(lines))
+        except Exception:
+            pass
+
         return {"nodes": nodes, "transitions": transitions}
 
     except Exception as e:

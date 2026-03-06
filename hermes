@@ -389,7 +389,7 @@ case "$CMD" in
     _resolve_site "${2:-}"
     load_theme
     banner
-    SESSION_ID=$(python3 -c "import uuid; print(str(uuid.uuid4())[:8])")
+    SESSION_ID="operator"
     echo -e "  ${ACCENT}▸${RESET} ${VESSEL_LABEL} is listening  ${DIM}$_SITE_LABEL · session: $SESSION_ID${RESET}"
     echo -e "  ${DIM}ask anything · ask to build features · ask to restyle · type exit to leave${RESET}"
     echo ""

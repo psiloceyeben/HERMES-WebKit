@@ -138,6 +138,35 @@ Only include STUDIO_JSON...STUDIO_END if the operator explicitly asks to change 
 _chat_sessions: dict = {}  # session_id -> conversation history
 _chat_pending:  dict = {}  # session_id -> pending tool calls awaiting confirmation
 
+CHAT_HISTORY_FILE = VESSEL_DIR / "chat_history.json"
+CHAT_HISTORY_MAX  = 100  # keep last N messages per session
+
+
+def _load_chat_history(session_id: str) -> list:
+    """Load persisted history for a session from disk."""
+    try:
+        if CHAT_HISTORY_FILE.exists():
+            data = json.loads(CHAT_HISTORY_FILE.read_text())
+            return data.get(session_id, [])
+    except Exception:
+        pass
+    return []
+
+
+def _save_chat_history(session_id: str, history: list):
+    """Persist history for a session to disk (capped at CHAT_HISTORY_MAX messages)."""
+    try:
+        data = {}
+        if CHAT_HISTORY_FILE.exists():
+            try:
+                data = json.loads(CHAT_HISTORY_FILE.read_text())
+            except Exception:
+                data = {}
+        data[session_id] = history[-CHAT_HISTORY_MAX:]
+        CHAT_HISTORY_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        log.warning(f"CHAT history save error: {e}")
+
 # ── operator tools ────────────────────────────────────────────────────────────
 
 import subprocess as _subprocess
@@ -532,8 +561,11 @@ async def chat(request: Request):
         return JSONResponse({"error": "message is required"}, status_code=400)
 
     if not session_id or session_id not in _chat_sessions:
-        session_id = str(uuid.uuid4())[:8]
-        _chat_sessions[session_id] = []
+        if not session_id:
+            session_id = str(uuid.uuid4())[:8]
+        _chat_sessions[session_id] = _load_chat_history(session_id)
+        if _chat_sessions[session_id]:
+            log.info(f"CHAT resumed session={session_id} ({len(_chat_sessions[session_id])} msgs)")
 
     history = _chat_sessions[session_id]
     history.append({"role": "user", "content": message})
@@ -548,6 +580,7 @@ async def chat(request: Request):
     if result["done"]:
         reply, theme = _parse_theme(result["reply"])
         reply, studio = _parse_studio(reply)
+        _save_chat_history(session_id, history)
         log.info("CHAT session=" + session_id + " turn=" + str(len(history) // 2))
         out = {"reply": reply, "session_id": session_id}
         if theme:
@@ -609,6 +642,7 @@ async def chat_confirm(request: Request):
     if result["done"]:
         reply, theme = _parse_theme(result["reply"])
         reply, studio = _parse_studio(reply)
+        _save_chat_history(session_id, history)
         out = {"reply": reply, "session_id": session_id}
         if theme:
             out["theme"] = theme

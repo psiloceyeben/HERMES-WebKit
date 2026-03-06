@@ -649,8 +649,9 @@ if os.path.exists(v):
       SNAME=$(basename "$svc_file" .service | sed 's/hermes-//')
       SSTATUS=$(systemctl is-active "hermes-$SNAME" 2>/dev/null)
       SCOLOR=$([[ "$SSTATUS" == "active" ]] && echo "$GREEN" || echo "$RED")
-      SPORT=$(grep -E 'HERMES_PORT|--port' "$svc_file" 2>/dev/null | grep -o '[0-9]\{4,\}' | head -1)
-      SDIR=$(grep EnvironmentFile "$svc_file" 2>/dev/null | awk '{print $2}' | xargs dirname 2>/dev/null)
+      SENVFILE=$(grep EnvironmentFile "$svc_file" 2>/dev/null | cut -d= -f2)
+      SDIR=$(dirname "$SENVFILE" 2>/dev/null)
+      SPORT=$(grep -E 'HERMES_PORT|--port' "$svc_file" "$SENVFILE" 2>/dev/null | grep -o '[0-9]\{4,\}' | head -1)
       SVNAME=$(python3 -c "
 import os
 v = '$SDIR/vessel/VESSEL.md'

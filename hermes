@@ -325,21 +325,19 @@ run_wizard() {
   echo -e "  ${DIM}answer a few questions to define the vessel${RESET}"
   echo ""
 
-  printf "  what is this website called?                    "
+  printf "  what is this website called?                         "
   read -r W_NAME
-  printf "  what is it for, and who is it for?              "
+  printf "  who is it for, and what does it offer them?         "
   read -r W_PURPOSE
-  printf "  what voice or tone?                             "
+  printf "  how should it sound?  (e.g. warm, sharp, poetic)   "
   read -r W_VOICE
-  printf "  what does it know about?                        "
+  printf "  what should it know and talk about?                 "
   read -r W_KNOWS
-  printf "  what should visitors feel or do when they leave? "
+  printf "  what do you want visitors to do or feel when done?  "
   read -r W_OUTCOME
-  printf "  what makes this specific to you?                "
+  printf "  what makes this unmistakably yours?                 "
   read -r W_SPECIFIC
-  printf "  what should it never do or say?                 "
-  read -r W_NEVER
-  printf "  your name or contact (optional)                 "
+  printf "  how can visitors reach you?  (email, link, or skip) "
   read -r W_CONTACT
 
   echo ""
@@ -361,11 +359,8 @@ $W_KNOWS
 ## Visitor outcome
 $W_OUTCOME
 
-## What makes this specific
+## What makes this yours
 $W_SPECIFIC
-
-## Constraints
-$W_NEVER
 
 ## Contact
 $W_CONTACT
@@ -765,7 +760,10 @@ SVCEOF
       && echo -e "  ${GREEN}✓${RESET} $SITE_NAME is running" \
       || echo -e "  ${RED}!${RESET} $SERVICE failed — check: journalctl -u $SERVICE -n 30"
 
-    # nginx block
+    # Always set up nginx — with domain on port 80, or IP:PORT without one
+    IP=$(hostname -I | awk '{print $1}')
+    ufw allow "$PORT/tcp" > /dev/null 2>&1 || true
+
     if [[ -n "$DOMAIN" ]]; then
       cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
 server {
@@ -789,15 +787,38 @@ server {
 }
 NGEOF
       nginx -t && systemctl reload nginx
-      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
       echo -e "  ${GREEN}✓${RESET} nginx configured for $DOMAIN"
       echo ""
       echo -e "  ${ACCENT}▸${RESET} live at http://$DOMAIN  ${DIM}(point DNS A record → $IP)${RESET}"
       echo -e "  ${DIM}  then: certbot --nginx -d $DOMAIN -d www.$DOMAIN${RESET}"
     else
-      IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+      # No domain — serve directly on IP:PORT via nginx (avoids bridge port conflict)
+      cat > "/etc/nginx/sites-enabled/$SITE_NAME" << NGEOF
+server {
+    listen ${IP}:${PORT};
+    server_name _;
+    root $SITE_DIR/static;
+    index index.html;
+    location ~ ^/(chat|chat/confirm) { allow 127.0.0.1; allow ::1; deny all; }
+    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_read_timeout 120s;
+    }
+    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
+    location @bridge {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_read_timeout 120s;
+    }
+}
+NGEOF
+      nginx -t && systemctl reload nginx
+      echo -e "  ${GREEN}✓${RESET} nginx configured on $IP:$PORT"
+      echo ""
       echo -e "  ${ACCENT}▸${RESET} live at http://$IP:$PORT"
-      echo -e "  ${DIM}  add a domain: hermes add-domain $SITE_NAME yourdomain.com${RESET}"
+      echo -e "  ${DIM}  add a domain later: hermes add-domain $SITE_NAME yourdomain.com${RESET}"
     fi
     echo -e "  ${DIM}  build token: $NEW_TOKEN${RESET}"
     echo ""

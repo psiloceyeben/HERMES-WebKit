@@ -2,14 +2,16 @@
 set -e
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HERMES WEBKIT — setup script
-# Run once on a fresh server. Safe to run again — idempotent throughout.
+# HERMES WEBKIT — server setup script
+# Run once on a fresh Ubuntu server. Safe to re-run — idempotent throughout.
+# Usage: sudo ./run
 # ─────────────────────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 RESET='\033[0m'
 
 HERMES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +40,7 @@ ask()  { echo -e "\n${BOLD}$1${RESET}"; }
 
 # ── root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED}Run as root.${RESET}  sudo ./run"
+  echo -e "${RED}Run as root:${RESET}  sudo ./run"
   exit 1
 fi
 
@@ -46,74 +48,86 @@ banner
 
 # ── dependencies ──────────────────────────────────────────────────────────────
 step "Installing system dependencies..."
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-pip nginx curl
-ok "System dependencies ready"
+apt-get install -y -qq python3 python3-pip nginx ufw curl git
+pip3 install -q --break-system-packages fastapi uvicorn anthropic 2>/dev/null \
+  || pip3 install -q fastapi uvicorn anthropic
+ok "Dependencies ready"
 
-step "Installing Python packages..."
-pip3 install -q fastapi uvicorn anthropic python-dotenv
-ok "Python packages ready"
+# ── firewall ──────────────────────────────────────────────────────────────────
+step "Configuring firewall..."
+ufw allow 22/tcp  > /dev/null
+ufw allow 80/tcp  > /dev/null
+ufw allow 443/tcp > /dev/null
+ufw --force enable > /dev/null
+ok "Firewall: 22, 80, 443 open"
 
 # ── vessel structure ──────────────────────────────────────────────────────────
 step "Checking vessel structure..."
-mkdir -p "$VESSEL_DIR/tree"
-mkdir -p "$HERMES_DIR/channels"
-mkdir -p "$HERMES_DIR/static"
+mkdir -p "$VESSEL_DIR/tree" "$HERMES_DIR/static"
 
 TREE_COUNT=$(ls "$VESSEL_DIR/tree/"*.md 2>/dev/null | wc -l)
 if [[ $TREE_COUNT -lt 10 ]]; then
-  warn "Tree nodes missing or incomplete ($TREE_COUNT/10 found)"
-  warn "Add node files to $VESSEL_DIR/tree/ — see README for the full list"
+  warn "Tree nodes: $TREE_COUNT/10 found — they ship with the repo and should be present"
 else
   ok "All 10 tree nodes present"
 fi
 
-# ── setup wizard ──────────────────────────────────────────────────────────────
-if [[ ! -f "$VESSEL_DIR/VESSEL.md" ]]; then
-  python3 "$HERMES_DIR/wizard.py"
+# ── .env ──────────────────────────────────────────────────────────────────────
+if [[ ! -f "$HERMES_DIR/.env" ]]; then
+  step "API key setup"
+  echo ""
+  echo -e "  ${DIM}Get one at: console.anthropic.com > API Keys${RESET}"
+  echo ""
+  read -r -s -p "  Anthropic API key: " API_KEY
+  echo ""
+
+  BUILD_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
+  cat > "$HERMES_DIR/.env" << ENVEOF
+ANTHROPIC_API_KEY=$API_KEY
+BUILD_TOKEN=$BUILD_TOKEN
+HERMES_MAX_TOKENS=8192
+ENVEOF
+
+  chmod 600 "$HERMES_DIR/.env"
+  ok ".env written (key stays on this server)"
+  echo -e "  ${DIM}Build token: $BUILD_TOKEN${RESET}"
 else
-  ok "VESSEL.md already exists — skipping wizard  (python3 wizard.py --reconfigure to redo)"
+  ok ".env already exists — skipping"
+  # Ensure BUILD_TOKEN and HERMES_MAX_TOKENS are set
+  if ! grep -q 'BUILD_TOKEN' "$HERMES_DIR/.env"; then
+    BUILD_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "BUILD_TOKEN=$BUILD_TOKEN" >> "$HERMES_DIR/.env"
+    ok "BUILD_TOKEN added"
+  fi
+  if ! grep -q 'HERMES_MAX_TOKENS' "$HERMES_DIR/.env"; then
+    echo "HERMES_MAX_TOKENS=8192" >> "$HERMES_DIR/.env"
+    ok "HERMES_MAX_TOKENS=8192 added"
+  fi
 fi
+
+# source env so we can use BUILD_TOKEN for the initial build
+set -a; source "$HERMES_DIR/.env" 2>/dev/null || true; set +a
 
 # ── STATE.md ──────────────────────────────────────────────────────────────────
 if [[ ! -f "$VESSEL_DIR/STATE.md" ]]; then
-  {
-    echo "# STATE"
-    echo ""
-    echo "Launched: $(date +%Y-%m-%d)"
-    echo "Status: live"
-    echo ""
-    echo "## Memory"
-    echo "Nothing recorded yet."
-  } > "$VESSEL_DIR/STATE.md"
+  cat > "$VESSEL_DIR/STATE.md" << STATEEOF
+# STATE
+
+Launched: $(date +%Y-%m-%d)
+Status: live
+
+## Memory
+Nothing recorded yet.
+
+## Heartbeat
+STATEEOF
   ok "STATE.md initialised"
 else
   ok "STATE.md already exists"
 fi
-
-# ── .env ──────────────────────────────────────────────────────────────────────
-if [[ ! -f "$HERMES_DIR/.env" ]]; then
-  echo ""
-  ask "  Anthropic API key (from console.anthropic.com — input is hidden):"
-  read -r -s API_KEY
-  echo ""
-
-  {
-    echo "ANTHROPIC_API_KEY=$API_KEY"
-    echo "# HERMES_MODEL=claude-sonnet-4-6"
-    echo "# HERMES_MODEL_HECATE=claude-haiku-4-5-20251001"
-    echo "# HERMES_MAX_TOKENS=4096"
-    echo "# PORT=8000"
-    echo "# VESSEL_DIR=$VESSEL_DIR"
-  } > "$HERMES_DIR/.env"
-
-  ok ".env written (key stays on this server)"
-else
-  ok ".env already exists — skipping"
-fi
-
-# reload env so wizard.py can use the key in atmospheric mode
-set -a; source "$HERMES_DIR/.env" 2>/dev/null || true; set +a
 
 # ── systemd service ───────────────────────────────────────────────────────────
 step "Installing systemd service..."
@@ -129,6 +143,8 @@ EnvironmentFile=$HERMES_DIR/.env
 ExecStart=/usr/bin/python3 $HERMES_DIR/bridge.py
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -143,25 +159,34 @@ step "Configuring nginx..."
 cat > "$NGINX_CONF" << NGINXEOF
 server {
     listen 80 default_server;
+    listen [::]:80 default_server;
     server_name _;
-
     root $HERMES_DIR/static;
+    index index.html;
 
-    location ~ ^/(health|build|setup|chat|agent|agents) {
+    # Block external access to operator endpoints
+    location ~ ^/(chat|chat/confirm) {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+    }
+
+    # Proxy API endpoints to the bridge
+    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
         proxy_pass         http://127.0.0.1:$PORT;
         proxy_set_header   Host            \$host;
         proxy_set_header   X-Real-IP       \$remote_addr;
         proxy_read_timeout 120s;
     }
 
+    # Static files with bridge fallback (no directory listing)
     location / {
-        try_files \$uri \$uri/ \$uri/index.html @bridge;
+        try_files \$uri \$uri/index.html @bridge;
     }
 
     location @bridge {
         proxy_pass         http://127.0.0.1:$PORT;
         proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
         proxy_read_timeout 120s;
     }
 }
@@ -169,27 +194,44 @@ NGINXEOF
 
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/hermes
 rm -f /etc/nginx/sites-enabled/default
-nginx -t
-systemctl reload nginx
+nginx -t && systemctl reload nginx
 ok "nginx configured"
 
-# ── hermes CLI ───────────────────────────────────────────────────────────────
+# ── hermes CLI ────────────────────────────────────────────────────────────────
 step "Installing hermes CLI..."
-cp "/hermes" /usr/local/bin/hermes
+cp "$HERMES_DIR/hermes" /usr/local/bin/hermes
 chmod +x /usr/local/bin/hermes
-ok "hermes command installed — type: hermes"
+ok "hermes command installed"
 
-# ── start ─────────────────────────────────────────────────────────────────────
+# ── start bridge ──────────────────────────────────────────────────────────────
 step "Starting HERMES..."
-systemctl start hermes
-sleep 2
+systemctl restart hermes
+sleep 3
 
 if systemctl is-active --quiet hermes; then
   ok "Bridge is running"
 else
-  warn "Bridge failed to start. Check logs:"
-  echo "    journalctl -u hermes -n 30 --no-pager"
+  warn "Bridge failed to start. Logs:"
+  journalctl -u hermes -n 20 --no-pager
   exit 1
+fi
+
+# ── VESSEL.md (if missing, run the in-browser wizard) ────────────────────────
+if [[ ! -f "$VESSEL_DIR/VESSEL.md" ]]; then
+  echo ""
+  echo -e "  ${BOLD}No vessel yet.${RESET}"
+  echo ""
+  IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+  echo -e "  Open ${CYAN}http://$IP/setup${RESET} in your browser to set up your vessel."
+  echo -e "  ${DIM}The setup wizard walks you through six questions and builds your first page.${RESET}"
+  echo ""
+else
+  # Vessel exists — trigger a build
+  ok "VESSEL.md found — building site..."
+  curl -s -X POST "http://127.0.0.1:$PORT/build" \
+    -H "X-Build-Token: $BUILD_TOKEN" \
+    -d "render the site homepage" > /dev/null
+  ok "Site built"
 fi
 
 # ── done ──────────────────────────────────────────────────────────────────────
@@ -197,13 +239,18 @@ echo ""
 echo -e "  ${GREEN}${BOLD}HERMES is live.${RESET}"
 echo ""
 
-SERVER_IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
-echo -e "  Visit      ${CYAN}http://$SERVER_IP${RESET}"
-echo -e "  Health     ${CYAN}http://$SERVER_IP/health${RESET}"
-echo -e "  Logs       journalctl -u hermes -f"
-echo -e "  Vessel     nano $VESSEL_DIR/VESSEL.md"
+IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+echo -e "  Site       ${CYAN}http://$IP${RESET}"
+echo -e "  Health     ${CYAN}http://$IP/health${RESET}"
 echo ""
-echo "  To add a domain and HTTPS:"
-echo "    apt install certbot python3-certbot-nginx -y"
-echo "    certbot --nginx -d yourdomain.com"
+echo -e "  ${BOLD}Start working on your site:${RESET}"
+echo -e "  ${CYAN}hermes studio${RESET}   open chat + shell side by side"
+echo -e "  ${CYAN}hermes build${RESET}    rebuild the site"
+echo -e "  ${CYAN}hermes sites${RESET}    list all vessels"
+echo ""
+echo -e "  ${DIM}To add a domain and HTTPS:${RESET}"
+echo -e "  ${DIM}  apt install certbot python3-certbot-nginx -y${RESET}"
+echo -e "  ${DIM}  certbot --nginx -d yourdomain.com${RESET}"
+echo ""
+echo -e "  ${DIM}To add another website:  hermes new-site <name>${RESET}"
 echo ""

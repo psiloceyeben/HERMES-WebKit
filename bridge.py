@@ -464,8 +464,8 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> 
         + "of what you are about to do and why — in natural language, not technical jargon. "
         + "The operator just needs to understand the intent, not the implementation details. "
         + "For casual conversation, just reply in plain text. No HTML. No markdown. "
-        + "Conversational, direct, and present. Remember the full session."
-        + CHAT_THEME_INSTRUCTIONS
+        + "Conversational, direct, and present. Remember the full session. To trigger a site rebuild, read your .env file (VESSEL_DIR/../.env or the path in your env) to get BUILD_TOKEN and HERMES_PORT, then use run_command with the curl build endpoint."
+                + CHAT_THEME_INSTRUCTIONS
         + CHAT_STUDIO_INSTRUCTIONS
     )
 
@@ -883,6 +883,85 @@ Return the route JSON."""
 
 # ── lightning descent — render ────────────────────────────────────────────────
 
+# ── chat JS injected into every rendered page ────────────────────────────────
+
+_CHAT_JS = """<script>
+(function(){
+  var input = document.getElementById('hermes-input') ||
+              document.querySelector('input[type="text"],input:not([type="submit"]):not([type="hidden"])');
+  var btn   = document.getElementById('hermes-send') ||
+              document.querySelector('button');
+  if(!input || !btn) return;
+
+  var SK  = 'hermes_sid';
+  var sid = localStorage.getItem(SK) || '';
+
+  // insert reply element after the input's container
+  var replyEl = document.createElement('div');
+  replyEl.id = 'hermes-reply';
+  replyEl.style.cssText = [
+    'margin-top:1.2em',
+    'padding:0.85em 1.1em',
+    'opacity:0.9',
+    'white-space:pre-wrap',
+    'font-style:italic',
+    'line-height:1.55',
+    'min-height:1.5em',
+    'transition:opacity 0.2s'
+  ].join(';');
+  var container = input.closest('form') || input.closest('div') || input.parentElement;
+  if(container && container.parentElement){
+    container.parentElement.insertBefore(replyEl, container.nextSibling);
+  } else {
+    document.body.appendChild(replyEl);
+  }
+
+  async function send(){
+    var msg = input.value.trim();
+    if(!msg) return;
+    btn.disabled = true;
+    input.disabled = true;
+    input.value   = '';
+    replyEl.style.opacity = '0.45';
+    replyEl.textContent   = '…';
+    try {
+      var r = await fetch('/ask', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg, session_id: sid})
+      });
+      var d = await r.json();
+      sid = d.session_id || sid;
+      localStorage.setItem(SK, sid);
+      replyEl.style.opacity = '0.9';
+      replyEl.textContent   = d.reply || '';
+      if(d.limit_reached && d.redirect){
+        setTimeout(function(){ location.href = d.redirect; }, 3000);
+      }
+    } catch(e){
+      replyEl.style.opacity = '0.9';
+      replyEl.textContent   = 'something went wrong — try again';
+    }
+    btn.disabled   = false;
+    input.disabled = false;
+    input.focus();
+  }
+
+  btn.addEventListener('click', function(e){ e.preventDefault(); send(); });
+  input.addEventListener('keydown', function(e){ if(e.key === 'Enter') send(); });
+})();
+</script>"""
+
+
+def _inject_chat_js(html: str) -> str:
+    """Insert chat JS before </body>, or append if tag not found."""
+    tag = "</body>"
+    idx = html.lower().rfind(tag)
+    if idx != -1:
+        return html[:idx] + _CHAT_JS + html[idx:]
+    return html + _CHAT_JS
+
+
 def render(ctx: dict, route: dict, request_text: str) -> str:
     """
     Assembles the system prompt from:
@@ -920,7 +999,7 @@ Respond with complete, valid HTML only. No markdown fences. No commentary outsid
         system=system,
         messages=[{"role": "user", "content": request_text}],
     )
-    return resp.content[0].text.strip()
+    return _inject_chat_js(resp.content[0].text.strip())
 
 
 # ── build — static output ─────────────────────────────────────────────────────

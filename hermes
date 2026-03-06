@@ -375,6 +375,14 @@ VESSELEOF
   echo ""
 }
 
+# ── self-sync: keep /usr/local/bin/hermes in step with /root/hermes/hermes ────
+_SELF="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/$(basename "${BASH_SOURCE[0]}")"
+if [[ "$_SELF" == "/root/hermes/hermes" && -f "/usr/local/bin/hermes" ]]; then
+  if ! diff -q "$_SELF" /usr/local/bin/hermes > /dev/null 2>&1; then
+    cp "$_SELF" /usr/local/bin/hermes 2>/dev/null || true
+  fi
+fi
+
 # ── commands ───────────────────────────────────────────────────────────────────
 CMD="${1:-}"
 
@@ -510,8 +518,11 @@ TMUXEOF
     tmux -f "$TMUX_CONF" new-session -d -s "$SESSION"
     # Left pane: operator chat
     tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "hermes chat $SITE_ARG" Enter
-    # Right column: shell
+    # Right column: shell (site-aware — export HERMES_ENV so all hermes commands target the right vessel)
     tmux -f "$TMUX_CONF" split-window -t "$SESSION" -h -p "$RIGHT_PCT"
+    if [[ -n "$SITE_ARG" && "$SITE_ARG" != "main" ]]; then
+      tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "export HERMES_ENV=/root/hermes/vessels/$SITE_ARG/.env" Enter
+    fi
     if [[ -n "$_S_SHELL_CMD" ]]; then
       tmux -f "$TMUX_CONF" send-keys -t "$SESSION" "$_S_SHELL_CMD" Enter
     else
@@ -569,12 +580,34 @@ TMUXEOF
     ;;
 
   build)
-    banner
-    MSG="${2:-render the site homepage}"
-    echo -e "  ${ACCENT}▸${RESET} building: ${DIM}$MSG${RESET}\n"
-    curl -s -X POST "$BRIDGE/build" \
+    # hermes build                   → main site, default prompt
+    # hermes build "a prompt"        → main site, custom prompt
+    # hermes build blog              → blog site, default prompt
+    # hermes build blog "a prompt"   → blog site, custom prompt
+    ARG2="${2:-}"
+    ARG3="${3:-}"
+    if [[ -n "$ARG2" ]] && [[ -d "/root/hermes/vessels/$ARG2" || "$ARG2" == "main" ]]; then
+      _resolve_site "$ARG2"
+      MSG="${ARG3:-render the site homepage}"
+    else
+      MSG="${ARG2:-render the site homepage}"
+    fi
+    load_theme; banner
+    echo -e "  ${ACCENT}▸${RESET} building ${BOLD}$_SITE_LABEL${RESET}: ${DIM}$MSG${RESET}\n"
+    RESULT=$(curl -s -X POST "$BRIDGE/build" \
       -H "X-Build-Token: $BUILD_TOKEN" \
-      -d "$MSG"
+      -H "Content-Type: text/plain" \
+      -d "$MSG")
+    python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+    if d.get('status') == 'ok':
+        print(f'  done — {d.get(\"chars\", \"?\")} chars')
+    else:
+        print(f'  {d}')
+except: print(f'  {sys.argv[1][:120]}')
+" "$RESULT" 2>/dev/null
     echo ""
     ;;
 
@@ -729,6 +762,7 @@ VESSEL_DIR=$SITE_DIR/vessel
 STATIC_DIR=$SITE_DIR/static
 BUILD_TOKEN=$NEW_TOKEN
 HERMES_PORT=$PORT
+HERMES_MAX_TOKENS=8192
 ENVEOF
 
     # Write systemd service
@@ -778,7 +812,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
-    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
+    location / { try_files $uri $uri/index.html @bridge; }
     location @bridge {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_set_header Host \$host;
@@ -806,7 +840,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
-    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
+    location / { try_files $uri $uri/index.html @bridge; }
     location @bridge {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_set_header Host \$host;
@@ -854,7 +888,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
-    location / { try_files \$uri \$uri/ \$uri/index.html @bridge; }
+    location / { try_files $uri $uri/index.html @bridge; }
     location @bridge {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_set_header Host \$host;
@@ -868,6 +902,44 @@ NGEOF
     IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     echo -e "  ${DIM}  point your DNS A record → $IP${RESET}"
     echo -e "  ${DIM}  then: certbot --nginx -d $DOMAIN -d www.$DOMAIN${RESET}"
+    echo ""
+    ;;
+
+  analytics)
+    # hermes analytics        → main site
+    # hermes analytics blog   → specific vessel
+    SITE_NAME="${2:-}"
+    if [[ -n "$SITE_NAME" && "$SITE_NAME" != "main" ]]; then
+      _resolve_site "$SITE_NAME"
+    fi
+    load_theme; banner
+    echo -e "  ${BOLD}analytics${RESET}  ${DIM}$_SITE_LABEL${RESET}"
+    echo ""
+    RESULT=$(curl -s -H "X-Build-Token: $BUILD_TOKEN" "$BRIDGE/analytics" 2>/dev/null)
+    python3 -c "
+import json, sys, datetime
+try:
+    d = json.loads(sys.argv[1])
+    total = d.get('total', 0)
+    pages = d.get('pages', {})
+    daily = d.get('daily', {})
+    print(f'  total visits : {total}')
+    if daily:
+        print(f'  last 7 days  :')
+        today = datetime.date.today()
+        for i in range(6, -1, -1):
+            day = str(today - datetime.timedelta(days=i))
+            count = daily.get(day, 0)
+            bar = '▪' * min(count, 30)
+            print(f'    {day}  {bar} {count if count else \"\"}')
+    if pages:
+        print(f'  by page      :')
+        for path, count in sorted(pages.items(), key=lambda x: -x[1])[:10]:
+            print(f'    {path:<30s}  {count}')
+except Exception as e:
+    print(f'  error: {e}')
+    print(f'  raw: {sys.argv[1][:200]}')
+" "$RESULT" 2>/dev/null
     echo ""
     ;;
 
@@ -889,7 +961,8 @@ NGEOF
     echo -e "  ${ACCENT}hermes theme-reset${RESET}              reset to default style"
     echo -e "  ${ACCENT}hermes status [name]${RESET}            service status"
     echo -e "  ${ACCENT}hermes logs [name]${RESET}              live log stream"
-    echo -e "  ${ACCENT}hermes build${RESET}                    rebuild the static site"
+    echo -e "  ${ACCENT}hermes build [site] [prompt]${RESET}    rebuild — site name optional"
+    echo -e "  ${ACCENT}hermes analytics [name]${RESET}         visit stats for a vessel"
     echo -e "  ${ACCENT}hermes restart${RESET}                  restart the bridge"
     echo ""
     ;;

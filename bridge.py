@@ -1275,19 +1275,24 @@ def _write_tasks(tasks: list[dict]):
 
 
 def _append_heartbeat_log(entry: str):
-    """Append a heartbeat log entry to STATE.md."""
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    log_line = f"\n[{stamp}] {entry}"
-
+    """Append heartbeat to STATE.md, capped at 20 entries."""
+    import datetime as _dt
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    log_line = "[" + stamp + "] " + entry
+    NL = chr(10)
     if STATE_FILE.exists():
-        content = STATE_FILE.read_text()
-        if "## Heartbeat" not in content:
-            content += "\n\n## Heartbeat\n"
-        content += log_line
+        raw = STATE_FILE.read_text()
+        if "## Heartbeat" not in raw:
+            raw = raw + NL + NL + "## Heartbeat" + NL
+        parts = raw.split("## Heartbeat", 1)
+        hb_lines = [l for l in parts[1].strip().splitlines() if l.strip()]
+        hb_lines.append(log_line)
+        hb_lines = hb_lines[-20:]
+        out = parts[0] + "## Heartbeat" + NL + NL.join(hb_lines) + NL
     else:
-        content = f"# STATE\n\n## Heartbeat\n{log_line}"
+        out = "# STATE" + NL + NL + "## Heartbeat" + NL + log_line + NL
+    STATE_FILE.write_text(out)
 
-    STATE_FILE.write_text(content)
 
 
 async def _heartbeat_loop():

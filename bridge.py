@@ -365,15 +365,39 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
         {"done": False, "pending": [...actions...]}
     """
     while True:
-        resp = await asyncio.to_thread(
-            lambda: client.messages.create(
-                model=MODEL_RENDER,
-                max_tokens=4096,
-                system=system,
-                tools=OPERATOR_TOOLS,
-                messages=history,
+        # ── API call with overload handling ───────────────────────────────────
+        try:
+            resp = await asyncio.to_thread(
+                lambda: client.messages.create(
+                    model=MODEL_RENDER,
+                    max_tokens=4096,
+                    system=system,
+                    tools=OPERATOR_TOOLS,
+                    messages=history,
+                )
             )
-        )
+        except Exception as api_err:
+            err_str = str(api_err)
+            # 529 overloaded — wait and retry once before giving up
+            if "529" in err_str or "overloaded" in err_str.lower():
+                log.warning(f"API overloaded, retrying in 8s...")
+                await asyncio.sleep(8)
+                try:
+                    resp = await asyncio.to_thread(
+                        lambda: client.messages.create(
+                            model=MODEL_RENDER,
+                            max_tokens=4096,
+                            system=system,
+                            tools=OPERATOR_TOOLS,
+                            messages=history,
+                        )
+                    )
+                except Exception as retry_err:
+                    log.error(f"API retry failed: {retry_err}")
+                    return {"done": True, "reply": f"API overloaded — please try again in a moment."}
+            else:
+                log.error(f"API error in operator loop: {api_err}")
+                return {"done": True, "reply": f"API error: {err_str[:120]} — please try again."}
 
         # ── pure text reply ───────────────────────────────────────────────────
         if resp.stop_reason == "end_turn":

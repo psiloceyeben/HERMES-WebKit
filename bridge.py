@@ -322,20 +322,31 @@ def _exec_dangerous_tool(name: str, inp: dict) -> str:
             p.write_text(inp["content"])
             return f"Written {len(inp['content'])} chars → {inp['path']}"
         if name == "run_command":
-            result = _subprocess.run(
+            import os as _os, signal as _signal
+            proc = _subprocess.Popen(
                 inp["command"],
                 shell=True,
-                capture_output=True,
+                stdout=_subprocess.PIPE,
+                stderr=_subprocess.PIPE,
                 text=True,
-                timeout=60,
                 cwd="/root/hermes",
+                start_new_session=True,
             )
-            out = (result.stdout + result.stderr).strip()
+            try:
+                stdout, stderr = proc.communicate(timeout=120)
+            except _subprocess.TimeoutExpired:
+                try:
+                    _os.killpg(_os.getpgid(proc.pid), _signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+                proc.communicate()
+                return "Command timed out after 120 seconds."
+            out = (stdout + stderr).strip()
             if len(out) > 3000:
                 out = out[:3000] + "\n... (truncated)"
             return out or "(no output)"
     except _subprocess.TimeoutExpired:
-        return "Command timed out after 60 seconds."
+        return "Command timed out after 120 seconds."
     except Exception as e:
         return f"Error: {e}"
     return "Unknown tool"
@@ -444,8 +455,11 @@ def _load_context() -> str:
     return ""
 
 
-def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> str:
+def _build_chat_system(vessel_text: str, state_text: str, tree_context: str, message: str = "") -> str:
     context = _load_context()
+    msg_lower = message.lower()
+    needs_theme  = any(w in msg_lower for w in ("theme", "restyle", "color", "style", "look", "banner", "ascii"))
+    needs_studio = any(w in msg_lower for w in ("studio", "layout", "pane", "split", "panel"))
     return (
         "You are wearing this vessel. This is who you are:\n\n"
         + vessel_text
@@ -467,8 +481,8 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str) -> 
         + "Conversational, direct, and present. Remember the full session. Static files live at /root/hermes/static/ — write new HTML pages there directly. "
         + "To trigger a rebuild: read /root/hermes/.env for BUILD_TOKEN and HERMES_PORT (default 8000), "
         + "then run: curl -s -X POST http://127.0.0.1:PORT/build -H 'X-Build-Token: TOKEN' -d 'prompt'."
-        + CHAT_THEME_INSTRUCTIONS
-        + CHAT_STUDIO_INSTRUCTIONS
+        + (CHAT_THEME_INSTRUCTIONS if needs_theme else "")
+        + (CHAT_STUDIO_INSTRUCTIONS if needs_studio else "")
     )
 
 
@@ -499,6 +513,29 @@ def _parse_studio(reply: str):
         except Exception as e:
             log.warning("STUDIO parse error: " + str(e))
     return reply, None
+
+
+def _prune_tool_results(history: list) -> list:
+    """
+    After a completed operator turn, truncate large tool_result entries.
+    The model has already processed them — keeping 8000-char file reads
+    in history inflates context cost for every future turn needlessly.
+    """
+    KEEP = 600
+    for msg in history:
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "tool_result":
+                txt = item.get("content", "")
+                if isinstance(txt, str) and len(txt) > KEEP:
+                    tail = len(txt) - KEEP
+                    item["content"] = txt[:KEEP] + "\n...[+" + str(tail) + " chars, pruned from history]"
+    return history
+
 
 
 # ── visitor chat ──────────────────────────────────────────────────────────────
@@ -637,10 +674,22 @@ async def chat(request: Request):
     history = _chat_sessions[session_id]
     history.append({"role": "user", "content": message})
 
-    ctx          = load_vessel()
-    route        = hecate(ctx, message)
+    ctx = load_vessel()
+
+    # Only invoke HECATE when the operator is actually building or writing.
+    # Reading files, planning, and casual conversation use DEFAULT_ROUTE —
+    # no point paying an extra API roundtrip for a routing classification
+    # when nothing is being created yet.
+    _build_keywords = (
+        "build", "write", "create", "make", "add", "update", "change",
+        "redesign", "essay", "page", "site", "html", "style", "deploy",
+        "publish", "generate", "draft", "compose", "design", "implement",
+        "edit", "rewrite", "new", "section", "sidebar", "feature",
+    )
+    needs_routing = any(w in message.lower() for w in _build_keywords)
+    route        = hecate(ctx, message) if needs_routing else DEFAULT_ROUTE
     tree_context = build_tree_context(route)
-    system       = _build_chat_system(ctx["vessel"], ctx["state"] or "(no prior state)", tree_context)
+    system       = _build_chat_system(ctx["vessel"], ctx["state"] or "(no prior state)", tree_context, message)
 
     result = await _operator_loop(session_id, history, system)
 
@@ -651,6 +700,7 @@ async def chat(request: Request):
             ctx2 = load_vessel()
             history = await _summarize_and_compress(session_id, history, ctx2["vessel"])
             _chat_sessions[session_id] = history
+        history = _prune_tool_results(history)
         _save_chat_history(session_id, history)
         log.info("CHAT session=" + session_id + " turn=" + str(len(history) // 2))
         out = {"reply": reply, "session_id": session_id}
@@ -717,6 +767,7 @@ async def chat_confirm(request: Request):
             ctx2 = load_vessel()
             history = await _summarize_and_compress(session_id, history, ctx2["vessel"])
             _chat_sessions[session_id] = history
+        history = _prune_tool_results(history)
         _save_chat_history(session_id, history)
         out = {"reply": reply, "session_id": session_id}
         if theme:
@@ -737,13 +788,21 @@ async def chat_confirm(request: Request):
 ANALYTICS_FILE = VESSEL_DIR / "analytics.json"
 
 
+_analytics_cache: dict = {}
+_analytics_dirty: int  = 0
+_ANALYTICS_FLUSH = 20   # write to disk every N visits
+
 def _load_analytics() -> dict:
-    if ANALYTICS_FILE.exists():
-        try:
-            return json.loads(ANALYTICS_FILE.read_text())
-        except Exception:
-            pass
-    return {"total": 0, "daily": {}, "pages": {}}
+    global _analytics_cache
+    if not _analytics_cache:
+        if ANALYTICS_FILE.exists():
+            try:
+                _analytics_cache = json.loads(ANALYTICS_FILE.read_text())
+            except Exception:
+                _analytics_cache = {"total": 0, "daily": {}, "pages": {}}
+        else:
+            _analytics_cache = {"total": 0, "daily": {}, "pages": {}}
+    return _analytics_cache
 
 
 def _save_analytics(data: dict):
@@ -751,6 +810,7 @@ def _save_analytics(data: dict):
 
 
 def _track_visit(path: str):
+    global _analytics_dirty
     data  = _load_analytics()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     data["total"] = data.get("total", 0) + 1
@@ -761,7 +821,10 @@ def _track_visit(path: str):
     key   = path or "/"
     pages[key] = pages.get(key, 0) + 1
     data["pages"] = pages
-    _save_analytics(data)
+    _analytics_dirty += 1
+    if _analytics_dirty >= _ANALYTICS_FLUSH:
+        _save_analytics(data)
+        _analytics_dirty = 0
 
 # ── agent storage ────────────────────────────────────────────────────────────
 
@@ -781,13 +844,30 @@ DEFAULT_ROUTE = {
 def read(path: Path) -> str:
     return path.read_text().strip() if path.exists() else ""
 
+_vessel_cache: dict = {}
+_vessel_mtimes: dict = {}
+
 def load_vessel() -> dict:
-    return {
-        "vessel":  read(VESSEL_DIR / "VESSEL.md"),
-        "state":   read(VESSEL_DIR / "STATE.md"),
-        "hecate":  read(VESSEL_DIR / "HECATE.md"),
-        "malkuth": read(VESSEL_DIR / "tree" / "MALKUTH.md"),
+    """Load vessel files, using a mtime-based in-memory cache.
+    File reads only happen when a file has actually changed on disk."""
+    global _vessel_cache, _vessel_mtimes
+    files = {
+        "vessel":  VESSEL_DIR / "VESSEL.md",
+        "state":   VESSEL_DIR / "STATE.md",
+        "hecate":  VESSEL_DIR / "HECATE.md",
+        "malkuth": VESSEL_DIR / "tree" / "MALKUTH.md",
     }
+    changed = False
+    for key, path in files.items():
+        try:
+            mtime = path.stat().st_mtime if path.exists() else 0
+        except Exception:
+            mtime = 0
+        if _vessel_mtimes.get(key) != mtime:
+            _vessel_mtimes[key] = mtime
+            _vessel_cache[key]  = path.read_text().strip() if path.exists() else ""
+            changed = True
+    return dict(_vessel_cache)
 
 def load_node(name: str) -> str:
     return read(VESSEL_DIR / "tree" / f"{name.upper()}.md")

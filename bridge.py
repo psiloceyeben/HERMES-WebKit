@@ -352,10 +352,13 @@ def _exec_dangerous_tool(name: str, inp: dict) -> str:
     return "Unknown tool"
 
 
-async def _operator_loop(session_id: str, history: list, system: str) -> dict:
+async def _operator_loop(session_id: str, history: list, system: str, auto_approve: bool = False) -> dict:
     """
     Agentic tool loop. Runs until Claude produces a text reply or hits a
     write/run tool that requires operator confirmation.
+
+    auto_approve=True: execute dangerous tools without pausing (used after
+    the operator has already confirmed the plan on the first step).
 
     Returns:
         {"done": True,  "reply": "..."}
@@ -407,9 +410,23 @@ async def _operator_loop(session_id: str, history: list, system: str) -> dict:
                     "content": result,
                 })
 
-            # Dangerous tools → pause for confirmation
+            # Dangerous tools — auto-execute if operator already confirmed plan,
+            # otherwise pause and ask.
             if dangerous_calls:
-                # Extract any explanatory text the vessel wrote alongside tool calls
+                if auto_approve:
+                    for tc in dangerous_calls:
+                        result = _exec_dangerous_tool(tc["name"] if isinstance(tc, dict) else tc.name,
+                                                      tc["input"] if isinstance(tc, dict) else tc.input)
+                        log.info("TOOL AUTO " + (tc["name"] if isinstance(tc, dict) else tc.name) + ": " + result[:80])
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tc.id if hasattr(tc, "id") else tc["id"],
+                            "content": result,
+                        })
+                    history.append({"role": "user", "content": tool_results})
+                    continue
+
+                # First encounter — pause for confirmation
                 vessel_text = " ".join(
                     b.text for b in resp.content if hasattr(b, "text") and b.text.strip()
                 ).strip()
@@ -481,6 +498,9 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str, mes
         + "Conversational, direct, and present. Remember the full session. Static files live at /root/hermes/static/ — write new HTML pages there directly. "
         + "To trigger a rebuild: read /root/hermes/.env for BUILD_TOKEN and HERMES_PORT (default 8000), "
         + "then run: curl -s -X POST http://127.0.0.1:PORT/build -H 'X-Build-Token: TOKEN' -d 'prompt'."
+        + " For any multi-step task: first respond with a short plain-text plan describing what you will do"
+        + " and why, without calling any tools. Once the operator confirms, execute all steps through to"
+        + " completion — reads, writes, commands — without pausing between them."
         + (CHAT_THEME_INSTRUCTIONS if needs_theme else "")
         + (CHAT_STUDIO_INSTRUCTIONS if needs_studio else "")
     )
@@ -757,7 +777,7 @@ async def chat_confirm(request: Request):
         })
 
     history.append({"role": "user", "content": tool_results})
-    result = await _operator_loop(session_id, history, system)
+    result = await _operator_loop(session_id, history, system, auto_approve=True)
     _chat_sessions[session_id] = history
 
     if result["done"]:

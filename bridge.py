@@ -783,6 +783,21 @@ async def chat_confirm(request: Request):
         })
 
 
+@app.post("/chat/clear")
+async def chat_clear(request: Request):
+    """
+    Clear all operator chat history — in-memory sessions and persisted JSON.
+    Requires X-Build-Token. Used by: hermes chat-restart
+    """
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    _chat_sessions.clear()
+    _chat_pending.clear()
+    if CHAT_HISTORY_FILE.exists():
+        CHAT_HISTORY_FILE.write_text("{}")
+    log.info("CHAT history cleared by operator")
+    return JSONResponse({"status": "ok", "message": "chat history cleared"})
+
 # ── analytics storage ────────────────────────────────────────────────────────
 
 ANALYTICS_FILE = VESSEL_DIR / "analytics.json"

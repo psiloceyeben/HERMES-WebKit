@@ -553,6 +553,21 @@ TMUXEOF
     echo ""
     ;;
 
+  chat-restart)
+    load_theme; banner
+    echo -e "  ${ACCENT}▸${RESET} clearing chat history..."
+    RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+      -H "X-Build-Token: $BUILD_TOKEN" \
+      "$BRIDGE/chat/clear" 2>/dev/null)
+    HTTP_CODE=$(echo "$RESULT" | tail -1)
+    if [[ "$HTTP_CODE" == "200" ]]; then
+      echo -e "  ${GREEN}✓${RESET} chat history cleared — fresh session on next message"
+    else
+      echo -e "  ${RED}!${RESET} failed (HTTP $HTTP_CODE)"
+    fi
+    echo ""
+    ;;
+
   theme-reset)
     rm -f "$THEME_FILE"
     echo -e "\n  theme reset to default\n"
@@ -959,7 +974,8 @@ except Exception as e:
     echo -e "  ${ACCENT}hermes new-site <name> <domain>${RESET} same, with domain routing"
     echo -e "  ${ACCENT}hermes add-domain <name> <domain>${RESET}attach a domain to an existing site"
     echo -e "  ${ACCENT}hermes theme${RESET}                    show current terminal theme"
-    echo -e "  ${ACCENT}hermes theme-reset${RESET}              reset to default style"
+    echo -e "  ${ACCENT}hermes chat-restart${RESET}             clear chat history, start fresh
+    ${ACCENT}hermes theme-reset${RESET}              reset to default style"
     echo -e "  ${ACCENT}hermes status [name]${RESET}            service status"
     echo -e "  ${ACCENT}hermes logs [name]${RESET}              live log stream"
     echo -e "  ${ACCENT}hermes build [site] [prompt]${RESET}    rebuild — site name optional"

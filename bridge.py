@@ -352,7 +352,7 @@ def _exec_dangerous_tool(name: str, inp: dict) -> str:
     return "Unknown tool"
 
 
-async def _operator_loop(session_id: str, history: list, system: str, auto_approve: bool = False) -> dict:
+async def _operator_loop(session_id: str, history: list, system: str, auto_approve: bool = False, max_tool_rounds: int = 5) -> dict:
     """
     Agentic tool loop. Runs until Claude produces a text reply or hits a
     write/run tool that requires operator confirmation.
@@ -364,7 +364,34 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
         {"done": True,  "reply": "..."}
         {"done": False, "pending": [...actions...]}
     """
+    tool_rounds = 0
     while True:
+        # ── round limit — pause before context gets unmanageable ─────────────
+        if tool_rounds >= max_tool_rounds:
+            log.info(f"OPERATOR LOOP: hit round limit ({max_tool_rounds}), asking vessel to pause")
+            pause_msg = (
+                "You have completed several tool steps. Stop calling tools now. "
+                "Do the following: 1) update vessel/TASKS.md marking completed items [x] "
+                "and leaving remaining items [ ], then 2) write a brief plain-text summary "
+                "of what was done and what remains. Do not call any more tools. "
+                "The operator will say continue when ready for the next chunk."
+            )
+            history.append({"role": "user", "content": pause_msg})
+            try:
+                pause_resp = await asyncio.to_thread(
+                    lambda: client.messages.create(
+                        model=MODEL_RENDER,
+                        max_tokens=1024,
+                        system=system,
+                        messages=history,
+                    )
+                )
+                summary = " ".join(b.text for b in pause_resp.content if hasattr(b, "text")).strip()
+            except Exception:
+                summary = "Work paused after several steps. Say 'continue' to resume."
+            history.append({"role": "assistant", "content": [{"type": "text", "text": summary}]})
+            return {"done": True, "reply": summary}
+
         # ── API call with overload handling ───────────────────────────────────
         try:
             resp = await asyncio.to_thread(
@@ -448,6 +475,7 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
                             "content": result,
                         })
                     history.append({"role": "user", "content": tool_results})
+                    tool_rounds += 1
                     continue
 
                 # First encounter — pause for confirmation
@@ -482,6 +510,7 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
 
             # Only safe tools — continue the loop
             history.append({"role": "user", "content": tool_results})
+            tool_rounds += 1
             continue
 
         break  # unexpected stop reason
@@ -524,9 +553,11 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str, mes
         + "Writing to the static file immediately updates the live site — never trigger a rebuild after writing. "
         + "The /build endpoint regenerates a page from a prompt via the full render pipeline. "
         + "Only use it if the operator explicitly asks to rebuild or regenerate the site from a prompt."
-        + " For any multi-step task: first respond with a short plain-text plan describing what you will do"
-        + " and why, without calling any tools. Once the operator confirms, execute all steps through to"
-        + " completion — reads, writes, commands — without pausing between them."
+        + " TASK DECOMPOSITION: for any task needing more than one write or more than two distinct steps,"
+        + " start by writing a numbered task list to vessel/TASKS.md (format: '- [ ] task' per line)."
+        + " Then complete exactly ONE task per reply: do the work, mark it [x] in TASKS.md, report back."
+        + " Wait for the operator before the next task. This keeps each API call focused and bounded."
+        + " For simple single-step tasks (one write, one read, one command) just do it directly."
         + (CHAT_THEME_INSTRUCTIONS if needs_theme else "")
         + (CHAT_STUDIO_INSTRUCTIONS if needs_studio else "")
     )

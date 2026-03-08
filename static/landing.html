@@ -98,29 +98,27 @@
 
     /* ── Ignite button ── */
     #ignite {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 30;
-      background: transparent;
-      border: 1px solid rgba(100, 50, 10, 0.45);
-      color: rgba(80, 35, 8, 0.75);
+      display: block;
+      break-inside: avoid;
+      margin-top: 1.4em;
+      background: #1e0b02;
+      border: 1px solid #5a3010;
+      color: #c9982e;
       font-family: 'Georgia', 'Times New Roman', serif;
-      font-size: 0.82rem;
-      letter-spacing: 0.35em;
+      font-size: 0.78rem;
+      letter-spacing: 0.3em;
       text-transform: uppercase;
-      padding: 15px 44px;
+      padding: 11px 28px;
       cursor: pointer;
-      transition: border-color 0.3s, color 0.3s, box-shadow 0.3s, background 0.3s;
+      transition: background 0.25s, color 0.25s, border-color 0.25s;
       outline: none;
+      width: fit-content;
     }
 
     #ignite:hover {
-      border-color: rgba(200, 80, 10, 0.7);
-      color: rgba(180, 60, 5, 0.95);
-      background: rgba(200, 80, 10, 0.06);
-      box-shadow: 0 0 22px rgba(200, 80, 10, 0.15), inset 0 0 10px rgba(200, 80, 10, 0.04);
+      background: #3a1208;
+      color: #f0c040;
+      border-color: #8b4a18;
     }
 
     /* ── Burn canvas ── */
@@ -196,6 +194,8 @@
         <span class="g-text">What was true mattered less than what was indexed. A generation learned to search instead of to know.</span>
       </div>
 
+      <button id="ignite">Ignite</button>
+
       <div class="g">
         <span class="g-num">X</span>
         <span class="g-title">The Notification as Colonisation</span>
@@ -222,9 +222,6 @@
 
     </div>
   </div>
-
-  <!-- Ignite button -->
-  <button id="ignite">Ignite</button>
 
   <!-- Burn canvas (activated on click) -->
   <canvas id="burn"></canvas>

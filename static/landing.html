@@ -45,10 +45,36 @@
       pointer-events: none;
     }
 
+    .landing-header {
+      text-align: center;
+      padding: 28px 0 18px;
+      font-family: 'Georgia', 'Times New Roman', serif;
+    }
+
+    .landing-title {
+      display: block;
+      font-size: 1.65rem;
+      font-weight: normal;
+      font-variant: small-caps;
+      letter-spacing: 0.07em;
+      color: #0a0500;
+      line-height: 1.2;
+      margin-bottom: 0.4em;
+    }
+
+    .landing-sub {
+      display: block;
+      font-size: 0.88rem;
+      font-style: italic;
+      color: #3d1a05;
+      letter-spacing: 0.03em;
+      opacity: 0.75;
+    }
+
     .cols {
       column-count: 3;
       column-gap: 2.8rem;
-      height: 100vh;
+      height: calc(100vh - 110px);
       overflow: hidden;
       font-family: 'Georgia', 'Times New Roman', serif;
     }
@@ -144,6 +170,11 @@
 
   <!-- Overlay: dark background + faded grievances -->
   <div id="overlay">
+    <div class="landing-header">
+      <span class="landing-title">13 Declarations of Stolen Sovereignty</span>
+      <span class="landing-sub">Prometheus7 returns your sovereignty.</span>
+    </div>
+
     <div class="cols">
 
       <div class="g">

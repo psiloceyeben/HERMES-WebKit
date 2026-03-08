@@ -121,6 +121,18 @@
       border-color: #8b4a18;
     }
 
+    @media (max-width: 700px) {
+      .cols { column-count: 1; }
+      #ignite {
+        position: fixed;
+        bottom: 32px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 30;
+        margin-top: 0;
+      }
+    }
+
     /* ── Burn canvas ── */
     #burn {
       position: fixed;

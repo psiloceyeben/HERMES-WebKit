@@ -55,6 +55,23 @@ pip3 install -q --break-system-packages fastapi uvicorn anthropic python-dotenv 
   || pip3 install -q fastapi uvicorn anthropic python-dotenv
 ok "Dependencies ready"
 
+
+# ── auto-generate BUILD_TOKEN if not set ─────────────────────────────────────
+step "Checking security configuration..."
+ENV_FILE="${HERMES_DIR}/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  if ! grep -q "^BUILD_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+    # Generate a cryptographically random 40-char token
+    GENERATED_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(30))")
+    echo "" >> "$ENV_FILE"
+    echo "# Auto-generated on install — keep this secret" >> "$ENV_FILE"
+    echo "BUILD_TOKEN=${GENERATED_TOKEN}" >> "$ENV_FILE"
+    ok "BUILD_TOKEN auto-generated and added to .env"
+  else
+    ok "BUILD_TOKEN already configured"
+  fi
+fi
+
 # ── firewall ──────────────────────────────────────────────────────────────────
 step "Configuring firewall..."
 ufw allow 22/tcp  > /dev/null
@@ -96,6 +113,7 @@ ENVEOF
   echo -e "  ${DIM}Build token: $BUILD_TOKEN${RESET}"
 else
   ok ".env already exists — skipping"
+  chmod 600 "$HERMES_DIR/.env" 2>/dev/null || true
   # Ensure BUILD_TOKEN and HERMES_MAX_TOKENS are set
   if ! grep -q 'BUILD_TOKEN' "$HERMES_DIR/.env"; then
     BUILD_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -156,38 +174,88 @@ ok "Service installed and enabled"
 
 # ── nginx ─────────────────────────────────────────────────────────────────────
 step "Configuring nginx..."
-cat > "$NGINX_CONF" << NGINXEOF
+
+# ── add rate limiting zones to nginx.conf ────────────────────────────────────
+if ! grep -q "limit_req_zone" /etc/nginx/nginx.conf; then
+  sed -i 's/http {/http {\n    limit_req_zone $binary_remote_addr zone=ask:10m rate=10r\/m;\n    limit_req_zone $binary_remote_addr zone=build:10m rate=1r\/m;/' /etc/nginx/nginx.conf
+  ok "Rate limiting zones added"
+fi
+
+cat > "$NGINX_CONF" << 'NGINXEOF'
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    root $HERMES_DIR/static;
-    index index.html;
 
-    # Block external access to operator endpoints
-    location ~ ^/(chat|chat/confirm) {
+    server_tokens off;
+
+    root /root/hermes/static;
+    index landing.html;
+
+    # ── Security headers ─────────────────────────────────────────────────────
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self';" always;
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+
+    # ── Hide sensitive files ─────────────────────────────────────────────────
+    location ~* \.(json|env|py|log|md|sh|txt)$ {
+        return 404;
+    }
+
+    # ── Operator endpoints — localhost only ──────────────────────────────────
+    location ~ ^/(chat|chat/confirm|chat/clear) {
         allow 127.0.0.1;
         allow ::1;
         deny all;
     }
 
-    # Proxy API endpoints to the bridge
-    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
-        proxy_set_header   X-Real-IP       \$remote_addr;
-        proxy_read_timeout 120s;
+    # ── Visitor chat — rate limited ──────────────────────────────────────────
+    location /ask {
+        limit_req zone=ask burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 30s;
+        proxy_hide_header  X-Powered-By;
     }
 
-    # Static files with bridge fallback (no directory listing)
+    # ── Build endpoint — rate limited ────────────────────────────────────────
+    location /build {
+        limit_req zone=build burst=2 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
+    }
+
+    # ── Other public endpoints ───────────────────────────────────────────────
+    location ~ ^/(health|setup|agent|agents|analytics) {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
+    }
+
+    # ── Static files first, bridge fallback ─────────────────────────────────
     location / {
-        try_files \$uri \$uri/index.html @bridge;
+        try_files $uri $uri/ $uri/index.html @bridge;
     }
 
     location @bridge {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_set_header   Host            \$host;
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
         proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
     }
 }
 NGINXEOF

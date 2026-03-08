@@ -287,40 +287,73 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    root /root/hermes/static;
-    index index.html;
 
-    # Block external access to operator endpoints
-    location ~ ^/(chat|chat/confirm) {
+    server_tokens off;
+
+    root /root/hermes/static;
+    index landing.html;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self';" always;
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+
+    location ~* \.(json|env|py|log|md|sh|txt)$ {
+        return 404;
+    }
+
+    location ~ ^/(chat|chat/confirm|chat/clear) {
         allow 127.0.0.1;
         allow ::1;
         deny all;
     }
 
-    # Proxy API endpoints to the bridge
-    location ~ ^/(health|build|setup|ask|agent|agents|analytics) {
+    location /ask {
+        limit_req zone=ask burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
+        proxy_read_timeout 30s;
+        proxy_hide_header  X-Powered-By;
+    }
+
+    location /build {
+        limit_req zone=build burst=2 nodelay;
+        limit_req_status 429;
         proxy_pass         http://127.0.0.1:8000;
         proxy_set_header   Host            $host;
         proxy_set_header   X-Real-IP       $remote_addr;
         proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
     }
 
-    # Static files with bridge fallback
+    location ~ ^/(health|setup|agent|agents|analytics) {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host            $host;
+        proxy_set_header   X-Real-IP       $remote_addr;
+        proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
+    }
+
     location / {
-        try_files $uri $uri/index.html @bridge;
+        try_files $uri $uri/ $uri/index.html @bridge;
     }
 
     location @bridge {
         proxy_pass         http://127.0.0.1:8000;
         proxy_set_header   Host            $host;
         proxy_read_timeout 120s;
+        proxy_hide_header  X-Powered-By;
     }
 }
 '@
 
 Write-FileToServer $nginxConf "/etc/nginx/sites-available/hermes"
+SSH "if ! grep -q limit_req_zone /etc/nginx/nginx.conf; then python3 -c \"c=open('/etc/nginx/nginx.conf').read(); open('/etc/nginx/nginx.conf','w').write(c.replace('http {', 'http {\\n    limit_req_zone \$binary_remote_addr zone=ask:10m rate=10r/m;\\n    limit_req_zone \$binary_remote_addr zone=build:10m rate=1r/m;', 1)) if 'limit_req_zone' not in c else None\"; fi"
 SSH "ln -sf /etc/nginx/sites-available/hermes /etc/nginx/sites-enabled/hermes && rm -f /etc/nginx/sites-enabled/default && nginx -t && systemctl reload nginx"
-Write-Info "  nginx configured."
+Write-Info "  nginx configured (hardened)."
 
 # ── systemd service ───────────────────────────────────────────────────────────
 

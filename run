@@ -51,8 +51,8 @@ step "Installing system dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq python3 python3-pip nginx ufw curl git
-pip3 install -q --break-system-packages fastapi uvicorn anthropic python-dotenv 2>/dev/null \
-  || pip3 install -q fastapi uvicorn anthropic python-dotenv
+pip3 install -q --break-system-packages fastapi uvicorn anthropic openai python-dotenv 2>/dev/null \
+  || pip3 install -q fastapi uvicorn anthropic openai python-dotenv
 ok "Dependencies ready"
 
 
@@ -80,6 +80,24 @@ ufw allow 443/tcp > /dev/null
 ufw --force enable > /dev/null
 ok "Firewall: 22, 80, 443 open"
 
+# ── Ollama install (if selected) ─────────────────────────────────────────────
+if [[ "${LLM_PROVIDER_VALUE:-anthropic}" == "ollama" ]]; then
+  step "Installing Ollama..."
+  if ! command -v ollama &>/dev/null; then
+    curl -fsSL https://ollama.ai/install.sh | sh
+    ok "Ollama installed"
+  else
+    ok "Ollama already installed"
+  fi
+  MODEL_TO_PULL="${OLLAMA_MODEL:-llama3.2}"
+  step "Pulling model: $MODEL_TO_PULL (this may take a few minutes)..."
+  ollama pull "$MODEL_TO_PULL"
+  ok "Model $MODEL_TO_PULL ready"
+  # Ensure Ollama is running
+  systemctl enable ollama 2>/dev/null || true
+  systemctl start ollama 2>/dev/null || ollama serve &>/dev/null &
+fi
+
 # ── vessel structure ──────────────────────────────────────────────────────────
 step "Checking vessel structure..."
 mkdir -p "$VESSEL_DIR/tree" "$HERMES_DIR/static"
@@ -91,19 +109,58 @@ else
   ok "All 10 tree nodes present"
 fi
 
+# ── LLM provider selection ────────────────────────────────────────────────────
+step "Choose your LLM provider"
+echo ""
+echo -e "  ${BOLD}1)${RESET} Anthropic Claude  ${DIM}(claude-sonnet, API key required, ~\$5-20/month)${RESET}"
+echo -e "  ${BOLD}2)${RESET} Ollama (local)     ${DIM}(llama3.2, free, no API key, runs on this server)${RESET}"
+echo -e "  ${BOLD}3)${RESET} OpenAI             ${DIM}(gpt-4o, API key required)${RESET}"
+echo ""
+read -r -p "  Choose [1/2/3] (default: 1): " PROVIDER_CHOICE
+PROVIDER_CHOICE="${PROVIDER_CHOICE:-1}"
+
+case "$PROVIDER_CHOICE" in
+  2)
+    LLM_PROVIDER_VALUE="ollama"
+    OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
+    ok "Ollama selected — will install and pull $OLLAMA_MODEL"
+    ;;
+  3)
+    LLM_PROVIDER_VALUE="openai"
+    ok "OpenAI selected"
+    ;;
+  *)
+    LLM_PROVIDER_VALUE="anthropic"
+    ok "Anthropic selected"
+    ;;
+esac
+
 # ── .env ──────────────────────────────────────────────────────────────────────
 if [[ ! -f "$HERMES_DIR/.env" ]]; then
-  step "API key setup"
-  echo ""
-  echo -e "  ${DIM}Get one at: console.anthropic.com > API Keys${RESET}"
-  echo ""
-  read -r -s -p "  Anthropic API key: " API_KEY
-  echo ""
-
   BUILD_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
+  # Collect API key only if needed
+  if [[ "$LLM_PROVIDER_VALUE" == "anthropic" ]]; then
+    echo ""
+    echo -e "  ${DIM}Get one at: console.anthropic.com > API Keys${RESET}"
+    echo ""
+    read -r -s -p "  Anthropic API key: " API_KEY
+    echo ""
+  elif [[ "$LLM_PROVIDER_VALUE" == "openai" ]]; then
+    echo ""
+    echo -e "  ${DIM}Get one at: platform.openai.com/api-keys${RESET}"
+    echo ""
+    read -r -s -p "  OpenAI API key: " OPENAI_API_KEY
+    echo ""
+    API_KEY=""
+  else
+    API_KEY=""
+  fi
 
   cat > "$HERMES_DIR/.env" << ENVEOF
 ANTHROPIC_API_KEY=$API_KEY
+OPENAI_API_KEY=${OPENAI_API_KEY:-}
+LLM_PROVIDER=$LLM_PROVIDER_VALUE
 BUILD_TOKEN=$BUILD_TOKEN
 HERMES_MAX_TOKENS=8192
 ENVEOF
@@ -114,7 +171,11 @@ ENVEOF
 else
   ok ".env already exists — skipping"
   chmod 600 "$HERMES_DIR/.env" 2>/dev/null || true
-  # Ensure BUILD_TOKEN and HERMES_MAX_TOKENS are set
+  # Ensure LLM_PROVIDER, BUILD_TOKEN and HERMES_MAX_TOKENS are set
+  if ! grep -q "^LLM_PROVIDER=" "$HERMES_DIR/.env"; then
+    echo "LLM_PROVIDER=${LLM_PROVIDER_VALUE:-anthropic}" >> "$HERMES_DIR/.env"
+    ok "LLM_PROVIDER added"
+  fi
   if ! grep -q 'BUILD_TOKEN' "$HERMES_DIR/.env"; then
     BUILD_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
     echo "BUILD_TOKEN=$BUILD_TOKEN" >> "$HERMES_DIR/.env"

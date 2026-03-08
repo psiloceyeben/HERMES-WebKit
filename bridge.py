@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import uvicorn
-from anthropic import Anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -32,8 +31,36 @@ logging.basicConfig(
 )
 log = logging.getLogger("hermes")
 
-app    = FastAPI()
-client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+app = FastAPI()
+
+# ── LLM provider setup ────────────────────────────────────────────────────────
+# Set LLM_PROVIDER in .env: anthropic (default) | ollama | openai
+LLM_PROVIDER    = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+if LLM_PROVIDER == "anthropic":
+    from anthropic import Anthropic as _Anthropic
+    _anthropic_client = _Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    _oai_client = None
+    log.info("LLM provider: Anthropic")
+elif LLM_PROVIDER == "ollama":
+    try:
+        import openai as _openai_mod
+        _oai_client = _openai_mod.OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
+        _anthropic_client = None
+        log.info(f"LLM provider: Ollama ({OLLAMA_BASE_URL})")
+    except ImportError:
+        raise RuntimeError("openai package required for Ollama: pip install openai")
+elif LLM_PROVIDER == "openai":
+    try:
+        import openai as _openai_mod
+        _oai_client = _openai_mod.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+        _anthropic_client = None
+        log.info("LLM provider: OpenAI")
+    except ImportError:
+        raise RuntimeError("openai package required: pip install openai")
+else:
+    raise RuntimeError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r}. Use: anthropic, ollama, openai")
 
 VESSEL_DIR     = Path(os.environ.get("VESSEL_DIR",        "/root/hermes/vessel"))
 STATIC_DIR     = Path(os.environ.get("STATIC_DIR",        "/root/hermes/static"))
@@ -46,10 +73,153 @@ def _safe_path(p_str: str) -> Path:
     if not str(p).startswith(str(ALLOWED_ROOT)):
         raise ValueError(f"Access denied: '{p}' is outside the allowed directory")
     return p
+
+
+# ── Provider abstraction layer ────────────────────────────────────────────────
+
+class _FakeBlock:
+    """Minimal Anthropic-compatible content block for OpenAI/Ollama responses."""
+    __slots__ = ("type", "text", "id", "name", "input")
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+    def model_dump(self):
+        return {k: getattr(self, k) for k in self.__slots__ if hasattr(self, k)}
+
+
+class _FakeResp:
+    """Anthropic-compatible response wrapper for OpenAI/Ollama responses."""
+    def __init__(self, content: list, stop_reason: str):
+        self.content     = content
+        self.stop_reason = stop_reason
+
+
+def _to_oai_messages(messages: list, system: str = "") -> list:
+    """Convert Anthropic-format history to OpenAI chat format."""
+    import json as _j
+    out = []
+    if system:
+        out.append({"role": "system", "content": system})
+    for msg in messages:
+        role, content = msg["role"], msg["content"]
+        if isinstance(content, str):
+            out.append({"role": role, "content": content})
+        elif isinstance(content, list):
+            if role == "assistant":
+                txt_parts, tcs = [], []
+                for b in content:
+                    t = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+                    if t == "text":
+                        s = b.get("text") if isinstance(b, dict) else b.text
+                        if s: txt_parts.append(s)
+                    elif t == "tool_use":
+                        bid  = b.get("id")    if isinstance(b, dict) else b.id
+                        bn   = b.get("name")  if isinstance(b, dict) else b.name
+                        binp = b.get("input") if isinstance(b, dict) else b.input
+                        tcs.append({"id": bid, "type": "function",
+                                    "function": {"name": bn, "arguments": _j.dumps(binp)}})
+                am = {"role": "assistant", "content": " ".join(txt_parts) or None}
+                if tcs: am["tool_calls"] = tcs
+                out.append(am)
+            elif role == "user":
+                for b in content:
+                    t = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+                    if t == "tool_result":
+                        tid = b.get("tool_use_id") if isinstance(b, dict) else b.tool_use_id
+                        cnt = b.get("content", "") if isinstance(b, dict) else getattr(b, "content", "")
+                        out.append({"role": "tool", "tool_call_id": tid, "content": cnt or ""})
+                    else:
+                        txt = b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "")
+                        if txt: out.append({"role": "user", "content": txt})
+    return out
+
+
+def _to_oai_tools(tools: list) -> list:
+    """Convert Anthropic tool definitions to OpenAI function-calling format."""
+    return [{"type": "function", "function": {
+        "name": t["name"], "description": t.get("description", ""),
+        "parameters": t.get("input_schema", {}),
+    }} for t in tools]
+
+
+def _oai_resp_to_fake(resp) -> "_FakeResp":
+    """Wrap an OpenAI response as an Anthropic-compatible _FakeResp."""
+    import json as _j
+    choice = resp.choices[0]
+    msg    = choice.message
+    blocks = []
+    if msg.content:
+        blocks.append(_FakeBlock(type="text", text=msg.content))
+    for tc in (getattr(msg, "tool_calls", None) or []):
+        try:    inp = _j.loads(tc.function.arguments)
+        except: inp = {}
+        blocks.append(_FakeBlock(type="tool_use", id=tc.id, name=tc.function.name, input=inp))
+    stop = "tool_use" if choice.finish_reason == "tool_calls" else "end_turn"
+    return _FakeResp(blocks, stop)
+
+
+def _llm_simple(model: str, messages: list, system: str = "", max_tokens: int = 1024) -> str:
+    """Synchronous text-only LLM call. Works with all providers."""
+    if LLM_PROVIDER == "anthropic":
+        kw = dict(model=model, max_tokens=max_tokens, messages=messages)
+        if system: kw["system"] = system
+        resp = _anthropic_client.messages.create(**kw)
+        return " ".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+    else:
+        resp = _oai_client.chat.completions.create(
+            model=model, max_tokens=max_tokens,
+            messages=_to_oai_messages(messages, system),
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+
+async def _llm_simple_async(model: str, messages: list, system: str = "", max_tokens: int = 1024) -> str:
+    """Async text-only LLM call. Works with all providers."""
+    return await asyncio.to_thread(lambda: _llm_simple(model, messages, system, max_tokens))
+
+
+async def _llm_tool_call_async(
+    model: str, messages: list, system: str, tools: list, max_tokens: int = 4096,
+) -> "_FakeResp":
+    """
+    Async tool-calling LLM call. Returns _FakeResp (Anthropic-compatible).
+    Ollama: requires a tool-capable model (llama3.1, qwen2.5-coder, mistral-nemo).
+    """
+    if LLM_PROVIDER == "anthropic":
+        resp = await asyncio.to_thread(
+            lambda: _anthropic_client.messages.create(
+                model=model, max_tokens=max_tokens, system=system,
+                tools=tools, messages=messages,
+            )
+        )
+        blocks = []
+        for b in resp.content:
+            bt = getattr(b, "type", None)
+            if bt == "text":
+                blocks.append(_FakeBlock(type="text", text=b.text))
+            elif bt == "tool_use":
+                blocks.append(_FakeBlock(type="tool_use", id=b.id, name=b.name, input=b.input))
+        return _FakeResp(blocks, resp.stop_reason)
+    else:
+        resp = await asyncio.to_thread(
+            lambda: _oai_client.chat.completions.create(
+                model=model, max_tokens=max_tokens,
+                messages=_to_oai_messages(messages, system),
+                tools=_to_oai_tools(tools), tool_choice="auto",
+            )
+        )
+        return _oai_resp_to_fake(resp)
+
 INDEX_HTML     = STATIC_DIR / "index.html"
-MODEL_RENDER   = os.environ.get("HERMES_MODEL",           "claude-sonnet-4-6")
-MODEL_CLASSIFY = os.environ.get("HERMES_MODEL_HECATE",    "claude-haiku-4-5-20251001")
-MAX_TOKENS     = int(os.environ.get("HERMES_MAX_TOKENS",  "4096"))
+# Provider-aware model defaults (all overridable via .env)
+_PROVIDER_DEFAULTS = {
+    "anthropic": {"render": "claude-sonnet-4-6",  "classify": "claude-haiku-4-5-20251001"},
+    "ollama":    {"render": "llama3.2",            "classify": "llama3.2"},
+    "openai":    {"render": "gpt-4o",              "classify": "gpt-4o-mini"},
+}
+MODEL_RENDER   = os.environ.get("HERMES_MODEL",          _PROVIDER_DEFAULTS[LLM_PROVIDER]["render"])
+MODEL_CLASSIFY = os.environ.get("HERMES_MODEL_HECATE",   _PROVIDER_DEFAULTS[LLM_PROVIDER]["classify"])
+MAX_TOKENS     = int(os.environ.get("HERMES_MAX_TOKENS", "4096"))
 
 ALL_NODES = [
     "KETER", "CHOKMAH", "BINAH", "CHESED", "GEVURAH",
@@ -192,14 +362,7 @@ async def _summarize_and_compress(session_id: str, history: list, vessel_text: s
     )
 
     try:
-        resp = await asyncio.to_thread(
-            lambda: client.messages.create(
-                model=MODEL_RENDER,
-                max_tokens=512,
-                messages=[{"role": "user", "content": prompt}],
-            )
-        )
-        summary = resp.content[0].text.strip()
+        summary = await _llm_simple_async(MODEL_RENDER, [{"role": "user", "content": prompt}], max_tokens=512)
         CHAT_CONTEXT_FILE.write_text("# Operator Context\n\n" + summary + "\n")
         log.info(f"CHAT session={session_id} summarized {len(older)} msgs → CONTEXT.md")
     except Exception as e:
@@ -443,15 +606,7 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
             )
             history.append({"role": "user", "content": pause_msg})
             try:
-                pause_resp = await asyncio.to_thread(
-                    lambda: client.messages.create(
-                        model=MODEL_RENDER,
-                        max_tokens=1024,
-                        system=system,
-                        messages=history,
-                    )
-                )
-                summary = " ".join(b.text for b in pause_resp.content if hasattr(b, "text")).strip()
+                summary = await _llm_simple_async(MODEL_RENDER, history, system=system, max_tokens=1024)
             except Exception:
                 summary = "Work paused after several steps. Say 'continue' to resume."
             history.append({"role": "assistant", "content": [{"type": "text", "text": summary}]})
@@ -459,30 +614,17 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
 
         # ── API call with overload handling ───────────────────────────────────
         try:
-            resp = await asyncio.to_thread(
-                lambda: client.messages.create(
-                    model=MODEL_RENDER,
-                    max_tokens=4096,
-                    system=system,
-                    tools=OPERATOR_TOOLS,
-                    messages=history,
-                )
+            resp = await _llm_tool_call_async(
+                MODEL_RENDER, history, system, OPERATOR_TOOLS, max_tokens=4096,
             )
         except Exception as api_err:
             err_str = str(api_err)
-            # 529 overloaded — wait and retry once before giving up
             if "529" in err_str or "overloaded" in err_str.lower():
                 log.warning(f"API overloaded, retrying in 8s...")
                 await asyncio.sleep(8)
                 try:
-                    resp = await asyncio.to_thread(
-                        lambda: client.messages.create(
-                            model=MODEL_RENDER,
-                            max_tokens=4096,
-                            system=system,
-                            tools=OPERATOR_TOOLS,
-                            messages=history,
-                        )
+                    resp = await _llm_tool_call_async(
+                        MODEL_RENDER, history, system, OPERATOR_TOOLS, max_tokens=4096,
                     )
                 except Exception as retry_err:
                     log.error(f"API retry failed: {retry_err}")
@@ -731,15 +873,7 @@ def _build_visitor_system(vessel_text: str, state_text: str) -> str:
 
 async def _visitor_reply(history: list, system: str) -> str:
     """Single-turn visitor response — no tools, no agentic loop."""
-    resp = await asyncio.to_thread(
-        lambda: client.messages.create(
-            model=MODEL_VISITOR,
-            max_tokens=512,
-            system=system,
-            messages=history,
-        )
-    )
-    return " ".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+    return await _llm_simple_async(MODEL_VISITOR, history, system=system, max_tokens=512)
 
 
 @app.post("/ask")
@@ -1109,13 +1243,7 @@ REQUEST: {request_text}
 Return the route JSON."""
 
     try:
-        resp = client.messages.create(
-            model=MODEL_CLASSIFY,
-            max_tokens=300,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = resp.content[0].text.strip()
+        raw = _llm_simple(MODEL_CLASSIFY, [{"role": "user", "content": prompt}], system=system, max_tokens=300)
 
         # extract JSON object even if model wraps it
         match = re.search(r'\{.*\}', raw, re.DOTALL)
@@ -1273,13 +1401,7 @@ the signal transforms as it crosses. Apply them in sequence.
 
 Respond with complete, valid HTML only. No markdown fences. No commentary outside the HTML."""
 
-    resp = client.messages.create(
-        model=MODEL_RENDER,
-        max_tokens=MAX_TOKENS,
-        system=system,
-        messages=[{"role": "user", "content": request_text}],
-    )
-    html = resp.content[0].text.strip()
+    html = _llm_simple(MODEL_RENDER, [{"role": "user", "content": request_text}], system=system, max_tokens=MAX_TOKENS)
     # Strip any <script> tags injected by LLM output (XSS prevention)
     html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
     return _inject_chat_js(html)
@@ -1354,16 +1476,7 @@ Apply the full vessel identity and tree routing to this work.
 You are an agent completing a task, not rendering HTML.
 Return your result as clear, structured text. Be thorough and complete."""
 
-        resp = await asyncio.to_thread(
-            lambda: client.messages.create(
-                model=model,
-                max_tokens=MAX_TOKENS,
-                system=system,
-                messages=[{"role": "user", "content": task}],
-            )
-        )
-
-        result = resp.content[0].text.strip()
+        result = await _llm_simple_async(model, [{"role": "user", "content": task}], system=system, max_tokens=MAX_TOKENS)
         _agents[agent_id]["status"]  = "complete"
         _agents[agent_id]["result"]  = result
         log.info(f"AGENT {agent_id} complete ({len(result)} chars)")
@@ -1491,15 +1604,7 @@ You are responding via Telegram to your operator.
 Keep responses concise (2-4 sentences). Plain text, no HTML, no markdown."""
 
                 t = text  # capture for closure
-                resp = await asyncio.to_thread(
-                    lambda: client.messages.create(
-                        model=MODEL_CLASSIFY,
-                        max_tokens=300,
-                        system=system,
-                        messages=[{"role": "user", "content": t}],
-                    )
-                )
-                reply = resp.content[0].text.strip()
+                reply = await _llm_simple_async(MODEL_CLASSIFY, [{"role": "user", "content": t}], system=system, max_tokens=300).strip()
 
                 cid = chat_id  # capture for closure
                 await asyncio.to_thread(
@@ -1585,20 +1690,17 @@ async def _heartbeat_loop():
             )
 
             # Haiku produces a brief log entry
-            resp = await asyncio.to_thread(
-                lambda: client.messages.create(
-                    model=MODEL_CLASSIFY,
-                    max_tokens=100,
-                    system=(
-                        f"You are the heartbeat of this vessel:\n{ctx['vessel'][:300]}\n\n"
-                        f"Current status: {status_summary}\n\n"
-                        "Write a single-sentence heartbeat log entry. "
-                        "Note anything relevant. Be concise. No timestamps."
-                    ),
-                    messages=[{"role": "user", "content": "pulse"}],
-                )
+            heartbeat_entry = await _llm_simple_async(
+                MODEL_CLASSIFY,
+                [{"role": "user", "content": "pulse"}],
+                system=(
+                    f"You are the heartbeat of this vessel:\n{ctx['vessel'][:300]}\n\n"
+                    f"Current status: {status_summary}\n\n"
+                    "Write a single-sentence heartbeat log entry. "
+                    "Note anything relevant. Be concise. No timestamps."
+                ),
+                max_tokens=100,
             )
-            heartbeat_entry = resp.content[0].text.strip()
             _append_heartbeat_log(heartbeat_entry)
             log.info(f"HEARTBEAT: {heartbeat_entry}")
 

@@ -1850,6 +1850,10 @@ _KNOWN_PATHS = {"setup", "health", "build", "chat", "agent", "agents", "analytic
 async def handle_path(request: Request, path: str):
     if path == "setup":
         return await setup_get()
+    # Serve static HTML files directly from the static directory
+    static_file = STATIC_DIR / path
+    if request.method == "GET" and static_file.exists() and path.endswith(".html"):
+        return HTMLResponse(content=static_file.read_text())
     if path not in _KNOWN_PATHS:
         return HTMLResponse(content="<h1>404</h1>", status_code=404)
     return await _handle(request, path)

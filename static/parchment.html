@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thirteen Grievances — HERMES WEBKIT</title>
+  <style>
+    :root {
+      --parchment:      #f2e0b6;
+      --parchment-edge: #c9a86c;
+      --ink:            #1e1008;
+      --ink-mid:        #3d2010;
+      --ink-faded:      #6b4020;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0804;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 48px 20px 80px;
+      font-family: 'Georgia', 'Times New Roman', serif;
+    }
+    .sheet {
+      position: relative;
+      max-width: 720px;
+      width: 100%;
+      background: var(--parchment);
+      padding: 64px 72px 56px;
+      border-radius: 1px;
+      box-shadow:
+        0 0 0 1px rgba(139,90,30,0.25),
+        0 6px 32px rgba(0,0,0,0.55),
+        0 24px 80px rgba(0,0,0,0.4),
+        inset 0 0 120px rgba(139,100,20,0.12);
+    }
+    .sheet::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 30px,
+        rgba(100,70,20,0.05) 30px, rgba(100,70,20,0.05) 31px
+      );
+      pointer-events: none;
+    }
+    .sheet::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(139,90,20,0.18) 100%);
+      pointer-events: none;
+    }
+    .content { position: relative; z-index: 1; }
+    .eyebrow {
+      text-align: center;
+      font-size: 0.7rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--ink-faded);
+      margin-bottom: 1.2em;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: normal;
+      font-variant: small-caps;
+      letter-spacing: 0.06em;
+      color: var(--ink);
+      line-height: 1.25;
+      margin-bottom: 0.5em;
+    }
+    .subtitle {
+      text-align: center;
+      font-style: italic;
+      color: var(--ink-faded);
+      font-size: 0.88rem;
+      margin-bottom: 2.6em;
+    }
+    .ornament {
+      text-align: center;
+      color: var(--parchment-edge);
+      letter-spacing: 0.6em;
+      margin: 1.8em 0;
+      font-size: 0.9rem;
+      user-select: none;
+    }
+    ol { list-style: none; counter-reset: grievance; padding: 0; }
+    li {
+      counter-increment: grievance;
+      display: grid;
+      grid-template-columns: 2.8em 1fr;
+      gap: 0 0.9em;
+      margin-bottom: 1.65em;
+    }
+    li::before {
+      content: counter(grievance, upper-roman);
+      font-variant: small-caps;
+      color: var(--ink-faded);
+      font-size: 0.78rem;
+      padding-top: 0.22em;
+      text-align: right;
+      line-height: 1.6;
+    }
+    .g-title {
+      display: block;
+      font-size: 1rem;
+      font-weight: bold;
+      font-variant: small-caps;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      margin-bottom: 0.2em;
+    }
+    .g-text {
+      display: block;
+      font-size: 0.875rem;
+      font-style: italic;
+      color: var(--ink-mid);
+      line-height: 1.72;
+    }
+    .closing {
+      margin-top: 2.4em;
+      text-align: center;
+      font-style: italic;
+      font-size: 0.86rem;
+      color: var(--ink-faded);
+      line-height: 1.9;
+    }
+    .seal {
+      text-align: center;
+      margin-top: 1.8em;
+      font-size: 1.6rem;
+      color: var(--parchment-edge);
+      letter-spacing: 0.4em;
+    }
+    .back {
+      display: block;
+      text-align: center;
+      margin-top: 2.4em;
+      font-size: 0.76rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-faded);
+      text-decoration: none;
+      opacity: 0.55;
+      transition: opacity 0.2s;
+    }
+    .back:hover { opacity: 1; }
+    #burn {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 200;
+    }
+    @media (max-width: 600px) {
+      .sheet { padding: 40px 28px 48px; }
+      h1 { font-size: 1.55rem; }
+      li { grid-template-columns: 2.2em 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="content">
+      <p class="eyebrow">A ritual document of release</p>
+      <h1>Thirteen Grievances<br>Against the Modern Web</h1>
+      <p class="subtitle">Entered into the record on this day, for burning.</p>
+      <div class="ornament">&#x2014; &#x2726; &#x2726; &#x2726; &#x2014;</div>
+      <ol>
+        <li><div>
+          <span class="g-title">The Attention Economy</span>
+          <span class="g-text">You did not come here to be a resource. Yet your focus&#8202;&#8212;&#8202;the most intimate currency you possess&#8202;&#8212;&#8202;was sold before you finished reading this sentence. The product was never the page. It was the pause between your thoughts.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Infinite Scroll</span>
+          <span class="g-text">There was once a bottom to a page. A place where you chose to stop. That moment of closure was taken from you by design, by engineers who measured how long you stayed and called it success. Ending is a human right.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">Dark Patterns</span>
+          <span class="g-text">Consent was manufactured through friction. The decline button was grey and small and three clicks deep. The accept was green and waiting. This was not accident. This was architecture.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">Surveillance Without Witness</span>
+          <span class="g-text">Behaviour was collected before it was named&#8202;&#8212;&#8202;the hesitation, the abandoned cart, the keyword typed then deleted. Sold to someone who will use it without ever knowing your face. You were observed by no one and tracked by everything.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Algorithmic Tunnel</span>
+          <span class="g-text">Reality was curated by engagement. What provoked a reaction was elevated; what asked you to sit with difficulty was quietly filtered out. The world you saw was the world that kept you clicking. The rest was rendered invisible.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Cloud as Landlord</span>
+          <span class="g-text">Your words live in a data center you will never visit, in a jurisdiction you did not choose, owned by a company whose terms you accepted in a moment of impatience. You are a tenant. Your files are collateral.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">Five Companies, One Internet</span>
+          <span class="g-text">The web was built as a garden of many voices. It was gradually purchased and walled. Now five doorways open onto most of what people call the internet, and all five know who you are, and none of them owe you anything.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Cookie Banner Theater</span>
+          <span class="g-text">A banner appeared. It asked you something. The options were arranged so that the answer that served you was buried, and the answer that served them was immediate. This was called compliance. You were called a user.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">Knowledge Shaped by Ranking</span>
+          <span class="g-text">Epistemology surrendered to the algorithm. What was true mattered less than what was indexed. What was important competed with what was optimised. A generation learned to search instead of to know.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Notification as Colonisation</span>
+          <span class="g-text">They asked permission to interrupt you. You gave it once, in a moment of distraction. It became a lease renewed without asking. Your mornings were not your own. Your deepest concentrations were broken for things that could not wait&#8202;&#8212;&#8202;though nothing, in retrospect, could not have waited.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">Four Megabytes to Render a Paragraph</span>
+          <span class="g-text">Complexity was mistaken for sophistication. Frameworks were loaded to justify engineering salaries. What could be sent in twelve kilobytes arrived in four megabytes, and the page still took three seconds to become readable. This was called progress.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Terms of Service as Surrender</span>
+          <span class="g-text">A contract was presented. It was forty-seven pages. No one read it. Rights were transferred in the scrolling. Provisions changed without notice. You agreed to things that had not been written yet. This was called agreement.</span>
+        </div></li>
+        <li><div>
+          <span class="g-title">The Murder of the Personal Website</span>
+          <span class="g-text">There was a time when anyone with a thought could plant a flag on the web&#8202;&#8212;&#8202;strange, personal, unrepeatable. Those places were abandoned one by one as the platforms promised ease and delivered homogeneity. The personal web went quiet. Only the platforms remained, full of noise, empty of voice.</span>
+        </div></li>
+      </ol>
+      <div class="ornament">&#x2014; &#x2726; &#x2726; &#x2726; &#x2014;</div>
+      <p class="closing">
+        These grievances are not lodged with any authority.<br>
+        There is no authority to receive them.<br>
+        They are burned because fire is the oldest filing system.<br>
+        What remains after the burning is what was true.
+      </p>
+      <p class="seal">&#x26B7;</p>
+      <a class="back" href="/">&#x2190; return to the vessel</a>
+    </div>
+  </div>
+
+  <canvas id="burn"></canvas>
+
+  <script>
+  (function () {
+    var canvas = document.getElementById('burn');
+    var ctx    = canvas.getContext('2d');
+
+    function resize() {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var progress  = 0;
+    var speed     = 0.00010;
+    var maxSpeed  = 0.0055;
+    var startTime = null;
+    var particles = [];
+
+    function Particle(x, y) {
+      this.x       = x;
+      this.y       = y;
+      this.vx      = (Math.random() - 0.5) * 1.4;
+      this.vy      = -(Math.random() * 2.2 + 0.6);
+      this.life    = Math.random() * 0.75 + 0.25;
+      this.maxLife = this.life;
+      this.r       = Math.random() * 3.5 + 1;
+      this.hue     = Math.random() * 28 + 12;
+    }
+    Particle.prototype.update = function () {
+      this.x   += this.vx;
+      this.y   += this.vy;
+      this.vy  -= 0.04;
+      this.vx  += (Math.random() - 0.5) * 0.25;
+      this.life -= 0.016;
+    };
+    Particle.prototype.draw = function () {
+      var a = this.life / this.maxLife;
+      ctx.globalAlpha = a * 0.85;
+      ctx.fillStyle   = 'hsl(' + this.hue + ',100%,' + (48 + a * 32) + '%)';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r * a, 0, 6.2832);
+      ctx.fill();
+    };
+
+    function spawn(burnY) {
+      var n = Math.floor(progress * 9) + 3;
+      for (var i = 0; i < n; i++) {
+        particles.push(new Particle(
+          Math.random() * canvas.width,
+          burnY + (Math.random() - 0.5) * 24
+        ));
+      }
+    }
+
+    function frame(ts) {
+      if (!startTime) startTime = ts;
+      var elapsed = (ts - startTime) / 1000;
+      speed    = Math.min(maxSpeed, 0.00010 + elapsed * 0.00016);
+      progress = Math.min(1, progress + speed);
+
+      var burnY = canvas.height * (1 - progress);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (progress > 0.002) {
+        var ash = ctx.createLinearGradient(0, burnY - 55, 0, canvas.height);
+        ash.addColorStop(0,    'rgba(0,0,0,0)');
+        ash.addColorStop(0.12, 'rgba(18,9,4,0.72)');
+        ash.addColorStop(0.35, 'rgba(10,5,2,0.90)');
+        ash.addColorStop(1,    'rgba(5,2,1,0.97)');
+        ctx.globalAlpha = 1;
+        ctx.fillStyle   = ash;
+        ctx.fillRect(0, burnY - 55, canvas.width, canvas.height - burnY + 55);
+      }
+
+      var glow = ctx.createLinearGradient(0, burnY - 45, 0, burnY + 18);
+      glow.addColorStop(0,    'rgba(0,0,0,0)');
+      glow.addColorStop(0.35, 'rgba(255,110,15,0.28)');
+      glow.addColorStop(0.7,  'rgba(255,50,0,0.14)');
+      glow.addColorStop(1,    'rgba(0,0,0,0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = glow;
+      ctx.fillRect(0, burnY - 45, canvas.width, 65);
+
+      ctx.globalAlpha = 0.88;
+      ctx.strokeStyle = 'rgba(255,' + ((130 + Math.random() * 70) | 0) + ',0,0.82)';
+      ctx.lineWidth   = 1.4 + Math.random() * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(0, burnY);
+      for (var x = 0; x <= canvas.width; x += 5) {
+        ctx.lineTo(x, burnY + (Math.random() - 0.5) * 9 * Math.min(progress * 3, 1));
+      }
+      ctx.stroke();
+
+      if (progress < 1 && Math.random() < 0.75) spawn(burnY);
+      var alive = [];
+      for (var i = 0; i < particles.length; i++) {
+        particles[i].update();
+        if (particles[i].life > 0) { particles[i].draw(); alive.push(particles[i]); }
+      }
+      particles = alive;
+      ctx.globalAlpha = 1;
+
+      if (progress > 0.015 && progress < 0.99) {
+        var t = Math.min(progress, 0.5) * 0.22;
+        var lg = ctx.createLinearGradient(0, 0, 36, 0);
+        lg.addColorStop(0, 'rgba(255,75,0,' + t + ')');
+        lg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = lg;
+        ctx.fillRect(0, burnY, 36, canvas.height - burnY);
+        var rg = ctx.createLinearGradient(canvas.width, 0, canvas.width - 36, 0);
+        rg.addColorStop(0, 'rgba(255,75,0,' + t + ')');
+        rg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(canvas.width - 36, burnY, 36, canvas.height - burnY);
+      }
+
+      if (progress < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        ctx.globalAlpha = 0.96;
+        ctx.fillStyle   = '#060201';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    if (!sessionStorage.getItem('parchment_burned')) {
+      sessionStorage.setItem('parchment_burned', '1');
+      setTimeout(function () { requestAnimationFrame(frame); }, 2800);
+    }
+  })();
+  </script>
+</body>
+</html>

@@ -98,9 +98,11 @@
 
     /* ── Ignite button ── */
     #ignite {
-      display: block;
-      break-inside: avoid;
-      margin-top: 1.4em;
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
       background: #1e0b02;
       border: 1px solid #5a3010;
       color: #c9982e;
@@ -112,7 +114,7 @@
       cursor: pointer;
       transition: background 0.25s, color 0.25s, border-color 0.25s;
       outline: none;
-      width: fit-content;
+      white-space: nowrap;
     }
 
     #ignite:hover {
@@ -123,14 +125,6 @@
 
     @media (max-width: 700px) {
       .cols { column-count: 1; }
-      #ignite {
-        position: fixed;
-        bottom: 32px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 30;
-        margin-top: 0;
-      }
     }
 
     /* ── Burn canvas ── */
@@ -206,8 +200,6 @@
         <span class="g-text">What was true mattered less than what was indexed. A generation learned to search instead of to know.</span>
       </div>
 
-      <button id="ignite">Ignite</button>
-
       <div class="g">
         <span class="g-num">X</span>
         <span class="g-title">The Notification as Colonisation</span>
@@ -233,6 +225,8 @@
       </div>
 
     </div>
+
+    <button id="ignite">Ignite</button>
   </div>
 
   <!-- Burn canvas (activated on click) -->

@@ -1810,18 +1810,20 @@ async def _handle(request: Request, path: str = "") -> HTMLResponse:
     if not (VESSEL_DIR / "VESSEL.md").exists():
         return RedirectResponse("/setup", status_code=302)
 
-    # GET / with cached build — serve instantly, no API call
-    if request.method == "GET" and not path and INDEX_HTML.exists():
+    # GET / — serve the landing page (burn-to-reveal experience)
+    LANDING_HTML = STATIC_DIR / "landing.html"
+    if request.method == "GET" and not path:
         _track_visit("/")
-        log.info("→ GET /  serving static/index.html")
-        return HTMLResponse(content=INDEX_HTML.read_text())
-
-    # GET / with no cache yet — trigger first build
-    if request.method == "GET" and not path and not INDEX_HTML.exists():
-        _track_visit("/")
-        log.info("→ GET /  no cache — running first build")
-        html = build("render the site homepage for the first time")
-        return HTMLResponse(content=html)
+        if LANDING_HTML.exists():
+            log.info("→ GET /  serving landing.html")
+            return HTMLResponse(content=LANDING_HTML.read_text())
+        elif INDEX_HTML.exists():
+            log.info("→ GET /  serving static/index.html")
+            return HTMLResponse(content=INDEX_HTML.read_text())
+        else:
+            log.info("→ GET /  no cache — running first build")
+            html = build("render the site homepage for the first time")
+            return HTMLResponse(content=html)
 
     body  = (await request.body()).decode().strip()
     query = request.query_params.get("q", "")

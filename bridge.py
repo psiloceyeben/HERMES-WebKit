@@ -198,12 +198,40 @@ async def _summarize_and_compress(session_id: str, history: list, vessel_text: s
     return recent
 
 
+def _sanitize_history(history: list) -> list:
+    """Remove orphaned tool_result blocks that have no matching tool_use."""
+    tool_use_ids = set()
+    clean = []
+    for msg in history:
+        if msg.get("role") == "assistant":
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_use_ids.add(block.get("id"))
+            clean.append(msg)
+        elif msg.get("role") == "user":
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                tool_results = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"]
+                normal = [b for b in content if not (isinstance(b, dict) and b.get("type") == "tool_result")]
+                valid_results = [b for b in tool_results if b.get("tool_use_id") in tool_use_ids]
+                if tool_results and not valid_results and not normal:
+                    continue  # skip entirely-orphaned tool_result message
+                if valid_results != tool_results:
+                    msg = dict(msg, content=normal + valid_results)
+            clean.append(msg)
+        else:
+            clean.append(msg)
+    return clean
+
 def _load_chat_history(session_id: str) -> list:
     """Load persisted history for a session from disk."""
     try:
         if CHAT_HISTORY_FILE.exists():
             data = json.loads(CHAT_HISTORY_FILE.read_text())
-            return data.get(session_id, [])
+            history = data.get(session_id, [])
+            return _sanitize_history(history)
     except Exception:
         pass
     return []
@@ -422,6 +450,12 @@ async def _operator_loop(session_id: str, history: list, system: str, auto_appro
                 except Exception as retry_err:
                     log.error(f"API retry failed: {retry_err}")
                     return {"done": True, "reply": f"API overloaded — please try again in a moment."}
+            elif "400" in err_str and "tool_use_id" in err_str:
+                log.warning("Corrupt history (orphaned tool_use_id) — sanitizing and retrying")
+                sanitized = _sanitize_history(history)
+                history.clear()
+                history.extend(sanitized)
+                continue  # retry the loop with clean history
             else:
                 log.error(f"API error in operator loop: {api_err}")
                 return {"done": True, "reply": f"API error: {err_str[:120]} — please try again."}

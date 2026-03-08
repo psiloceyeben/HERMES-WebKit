@@ -274,13 +274,24 @@ ok "hermes command installed"
 # ── start bridge ──────────────────────────────────────────────────────────────
 step "Starting HERMES..."
 systemctl restart hermes
-sleep 3
 
-if systemctl is-active --quiet hermes; then
-  ok "Bridge is running"
+# Wait for bridge to actually answer HTTP — more reliable than sleep + is-active
+printf "  Starting bridge"
+BRIDGE_UP=0
+for i in $(seq 1 25); do
+  sleep 2
+  if curl -s --max-time 1 http://127.0.0.1:${PORT}/health > /dev/null 2>&1; then
+    BRIDGE_UP=1
+    break
+  fi
+  printf "."
+done
+echo ""
+if [[ $BRIDGE_UP -eq 1 ]]; then
+  ok "Bridge is responding"
 else
-  warn "Bridge failed to start. Logs:"
-  journalctl -u hermes -n 20 --no-pager
+  warn "Bridge did not respond after 50s. Logs:"
+  journalctl -u hermes -n 30 --no-pager
   exit 1
 fi
 

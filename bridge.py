@@ -365,7 +365,26 @@ def _exec_dangerous_tool(name: str, inp: dict) -> str:
             return f"Written {len(inp['content'])} chars → {inp['path']}"
         if name == "run_command":
             import os as _os, signal as _signal
-            import shlex as _shlex
+            import shlex as _shlex, re as _re
+            _raw = inp["command"] if isinstance(inp["command"], str) else " ".join(inp["command"])
+            # ── Command safety blocklist ───────────────────────────────────
+            _BLOCKED = [
+                (r"\brm\s+-[a-zA-Z]*r",               "recursive delete"),
+                (r"\|\s*(bash|sh|zsh|python3?)\b",    "pipe to shell interpreter"),
+                (r">\s*/(?!root/hermes)",               "redirect outside /root/hermes"),
+                (r"\b(apt|apt-get|pip3?)\s+(remove|purge|uninstall)", "package removal"),
+                (r"chmod\s+\S+\s+/(?!root/hermes)",  "chmod outside /root/hermes"),
+                (r"\bdd\b.*\bof=/",                   "raw disk write"),
+                (r":\(\)\s*\{",                      "fork bomb"),
+                (r"curl\s+.*\|\s*(bash|sh)",          "curl pipe to shell"),
+                (r"wget\s+.*\|\s*(bash|sh)",          "wget pipe to shell"),
+            ]
+            for _pat, _reason in _BLOCKED:
+                if _re.search(_pat, _raw, _re.IGNORECASE):
+                    return (
+                        f"Command blocked: {_reason}. "
+                        "Use the server terminal directly for destructive operations."
+                    )
             _cmd = inp["command"]
             if isinstance(_cmd, str):
                 _cmd = _shlex.split(_cmd)
@@ -1883,14 +1902,8 @@ async def analytics(request: Request):
 @app.get("/health")
 async def health():
     return JSONResponse({
-        "status":         "ok",
-        "vessel":         (VESSEL_DIR / "VESSEL.md").exists(),
-        "model_render":   MODEL_RENDER,
-        "model_classify": MODEL_CLASSIFY,
-        "nodes_present":  [
-            n for n in ALL_NODES
-            if (VESSEL_DIR / "tree" / f"{n}.md").exists()
-        ],
+        "status": "ok",
+        "vessel": (VESSEL_DIR / "VESSEL.md").exists(),
     })
 
 

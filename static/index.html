@@ -491,6 +491,68 @@
     #hermes-send { width: 100%; }
     .status-bar { flex-wrap: wrap; gap: 0.5rem; }
   }
+
+  /* Install section */
+  .install-section {
+    margin-bottom: 2.5rem;
+  }
+  .install-title {
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+  .install-cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.55rem;
+  }
+  .install-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    min-width: 3.8em;
+    opacity: 0.7;
+  }
+  .install-code {
+    flex: 1;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0.45em 0.75em;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .copy-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.35em 0.65em;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: border-color 0.2s, color 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--accent-ember); color: var(--accent-ember); }
+  .install-github {
+    margin-top: 1rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .install-github a { color: var(--accent); text-decoration: none; }
+  .install-github a:hover { color: var(--accent-warm); }
 </style>
 </head>
 <body>
@@ -570,9 +632,29 @@
         Prometheus7 is actively building. HERMES WEBKIT is open source and early.
         If you are a builder who wants to own your tools, you are in the right place.<br><br>
         This vessel is inhabited. Ask it something.<br><br>
-        <a href="/parchment.html" style="color:var(--ink-faded,#6b4020);font-size:0.78rem;letter-spacing:0.1em;text-transform:uppercase;opacity:0.55;">thirteen grievances This vessel is inhabited. Ask it something.rarr;</a>
+        <a href="/parchment.html" style="color:var(--text-muted);font-size:0.75rem;letter-spacing:0.1em;text-transform:uppercase;opacity:0.6;">thirteen grievances &rarr;</a>
       </p>
 
+
+      <div class="install-section">
+        <p class="install-title">One Line Install</p>
+        <div class="install-cmd">
+          <span class="install-label">npx</span>
+          <code class="install-code">npx github:psiloceyeben/HERMES-WebKit</code>
+          <button class="copy-btn" data-copy="npx github:psiloceyeben/HERMES-WebKit">copy</button>
+        </div>
+        <div class="install-cmd">
+          <span class="install-label">win</span>
+          <code class="install-code">irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps1 | iex</code>
+          <button class="copy-btn" data-copy="irm https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/install.ps1 | iex">copy</button>
+        </div>
+        <div class="install-cmd">
+          <span class="install-label">linux</span>
+          <code class="install-code">curl -sL https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/run | sudo bash</code>
+          <button class="copy-btn" data-copy="curl -sL https://raw.githubusercontent.com/psiloceyeben/HERMES-WebKit/main/run | sudo bash">copy</button>
+        </div>
+        <p class="install-github">&#9656; <a href="https://github.com/psiloceyeben/HERMES-WebKit" target="_blank" rel="noopener">github.com/psiloceyeben/HERMES-WebKit</a></p>
+      </div>
       <div class="ask-section">
         <div class="ask-label">Speak to the vessel</div>
         <div class="ask-row">
@@ -717,6 +799,22 @@
   btn.addEventListener('click', function(e){ e.preventDefault(); send(); });
   input.addEventListener('keydown', function(e){ if(e.key === 'Enter') send(); });
 })();
+
+  /* Copy buttons */
+  document.querySelectorAll('.copy-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var text = btn.getAttribute('data-copy');
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'copied';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 1800);
+      });
+    });
+  });
+
 </script>
 </body>
 </html>

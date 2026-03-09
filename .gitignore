@@ -39,3 +39,9 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Personal website — not part of the framework
+static/index.html
+static/landing.html
+static/parchment.html
+static/*.html

@@ -257,6 +257,62 @@ STRIPE_CANCEL_URL      = os.environ.get("STRIPE_CANCEL_URL",      "/cart")
 # ── room rental configuration ────────────────────────────────────────────────
 ROOMS_DIR = VESSEL_DIR / "rooms"
 
+# ── obsidian vault ─────────────────────────────────────────────────────────
+VAULT_DIR  = VESSEL_DIR / "vault"
+
+def _init_vault():
+    """Create vault directory and INDEX.md if they don't exist."""
+    VAULT_DIR.mkdir(parents=True, exist_ok=True)
+    (VAULT_DIR / "vessels").mkdir(exist_ok=True)
+    (VAULT_DIR / "sessions").mkdir(exist_ok=True)
+    (VAULT_DIR / "knowledge").mkdir(exist_ok=True)
+    (VAULT_DIR / "ideas").mkdir(exist_ok=True)
+
+    index = VAULT_DIR / "INDEX.md"
+    if not index.exists():
+        vessel_name = "HERMES"
+        if (VESSEL_DIR / "VESSEL.md").exists():
+            v = (VESSEL_DIR / "VESSEL.md").read_text(errors="replace")
+            for line in v.split("\n"):
+                if line.startswith("# "):
+                    vessel_name = line[2:].strip()
+                    break
+        index.write_text(
+            f"# {vessel_name} — Knowledge Vault\n\n"
+            "This is the central knowledge graph for this vessel.\n\n"
+            "## Structure\n"
+            "- [[vessels/]] — Notes on each vessel and room in the hotel\n"
+            "- [[sessions/]] — Conversation summaries and decisions\n"
+            "- [[knowledge/]] — Accumulated knowledge and references\n"
+            "- [[ideas/]] — Ideas, plans, and future directions\n\n"
+            "## Recent\n"
+            "*(notes will appear here as the vault grows)*\n"
+        )
+        log.info("VAULT initialized at " + str(VAULT_DIR))
+
+    # Auto-create vessel nodes for any known vessels
+    vessels_dir = VAULT_DIR / "vessels"
+    # Check if HERMES vessel node exists
+    hermes_note = vessels_dir / "HERMES.md"
+    if not hermes_note.exists() and (VESSEL_DIR / "VESSEL.md").exists():
+        v = (VESSEL_DIR / "VESSEL.md").read_text(errors="replace")[:500]
+        hermes_note.write_text(
+            "---\n"
+            "tags: [vessel, primary]\n"
+            "type: vessel\n"
+            f"created: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n"
+            "---\n\n"
+            "# HERMES\n\n"
+            "Primary vessel — the messenger god. Command center for the hotel.\n\n"
+            "## Identity\n"
+            f"{v[:300]}\n\n"
+            "## Connections\n"
+            "- [[INDEX]]\n"
+        )
+        log.info("VAULT created HERMES vessel node")
+
+
+
 ROOM_PLANS = {
     "3days":   {"label": "3 Days",    "price": 500,   "days": 3,   "currency": "usd"},
     "5days":   {"label": "5 Days",    "price": 1500,  "days": 5,   "currency": "usd"},
@@ -328,6 +384,33 @@ Generate real ASCII/unicode art for the banner. Make it completely immersive.
 Only include THEME_JSON...THEME_END if the operator explicitly asks to restyle.
 """
 
+
+VAULT_INSTRUCTIONS = """
+
+OBSIDIAN VAULT: You have a persistent knowledge vault at /root/hermes/vessel/vault/.
+This is your long-term memory — an Obsidian-compatible vault of interlinked markdown notes.
+
+Use vault tools to:
+- vault_list: browse existing notes
+- vault_read: read a specific note
+- vault_write: create or update notes (use [[wikilinks]] to link between notes)
+- vault_search: find notes containing specific text
+
+WHEN TO WRITE NOTES:
+- After meaningful conversations: summarize key decisions, preferences learned, work done
+- When you learn something about the operator or their goals
+- When connections form between different topics or vessels
+- When ideas or plans emerge worth remembering
+
+NOTE STRUCTURE:
+- Use YAML frontmatter: tags, date, linked vessels
+- Use [[wikilinks]] to connect related notes (e.g. [[vessels/ATHENA]], [[knowledge/design]])
+- Organize into folders: vessels/, sessions/, knowledge/, ideas/
+- Keep notes concise but linked — the graph matters more than length
+
+You don't need to write a note for every interaction. Use judgment — write when there's
+something worth remembering for future conversations.
+"""
 
 CHAT_STUDIO_INSTRUCTIONS = """
 
@@ -558,6 +641,56 @@ def _exec_safe_tool(name: str, inp: dict) -> str:
                 size = f"  {item.stat().st_size}b" if item.is_file() else ""
                 rows.append(f"{tag}  {item.name}{size}")
             return "\n".join(rows) or "(empty)"
+
+        if name == "vault_write":
+            p = (VAULT_DIR / inp["path"]).resolve()
+            if not str(p).startswith(str(VAULT_DIR.resolve())):
+                return "Access denied: path outside vault"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(inp["content"])
+            log.info(f"VAULT wrote {len(inp['content'])} chars → {inp['path']}")
+            return f"Saved vault note: {inp['path']} ({len(inp['content'])} chars)"
+        if name == "vault_list":
+            folder = inp.get("folder", "").strip("/")
+            vdir = VAULT_DIR / folder if folder else VAULT_DIR
+            if not vdir.exists():
+                return "(vault empty)"
+            rows = []
+            for md in sorted(vdir.rglob("*.md")):
+                rel = str(md.relative_to(VAULT_DIR))
+                first = ""
+                try:
+                    first = md.read_text(errors="replace").split("\n")[0][:80]
+                except Exception:
+                    pass
+                rows.append(f"{rel}  |  {first}")
+            return "\n".join(rows) or "(no notes)"
+        if name == "vault_read":
+            p = (VAULT_DIR / inp["path"]).resolve()
+            if not str(p).startswith(str(VAULT_DIR.resolve())):
+                return "Access denied: path outside vault"
+            if not p.exists():
+                return f"Note not found: {inp['path']}"
+            text = p.read_text(errors="replace")
+            if len(text) > 20000:
+                text = text[:20000] + "\n... (truncated)"
+            return text
+        if name == "vault_search":
+            q = inp["query"].lower()
+            results = []
+            if not VAULT_DIR.exists():
+                return "(vault empty)"
+            for md in sorted(VAULT_DIR.rglob("*.md")):
+                try:
+                    lines = md.read_text(errors="replace").split("\n")
+                    hits = [(i+1, l.strip()) for i, l in enumerate(lines) if q in l.lower()]
+                    if hits:
+                        rel = str(md.relative_to(VAULT_DIR))
+                        for ln, text in hits[:3]:
+                            results.append(f"{rel}:{ln}  {text[:100]}")
+                except Exception:
+                    pass
+            return "\n".join(results[:30]) or "No matches"
     except Exception as e:
         return f"Error: {e}"
     return "Unknown tool"
@@ -726,7 +859,7 @@ async def _operator_loop(session_id: str, history: list, system: str) -> dict:
             })
 
             tool_calls      = [b for b in resp.content if b.type == "tool_use"]
-            safe_calls      = [t for t in tool_calls if t.name in ("read_file", "list_dir")]
+            safe_calls      = [t for t in tool_calls if t.name in ("read_file", "list_dir", "vault_list", "vault_read", "vault_write", "vault_search")]
             dangerous_calls = [t for t in tool_calls if t.name in ("write_file", "edit_file", "run_command")]
 
             tool_results = []
@@ -838,6 +971,7 @@ def _build_chat_system(vessel_text: str, state_text: str, tree_context: str, ves
         + _build_commerce_context()
         + CHAT_THEME_INSTRUCTIONS
         + CHAT_STUDIO_INSTRUCTIONS
+        + VAULT_INSTRUCTIONS
         + (("\n\nYOUR IDENTITY:\n" + VESSEL_ROLE_PROMPTS[vessel_role.upper()]) if vessel_role.upper() in VESSEL_ROLE_PROMPTS else "")
     )
 
@@ -869,6 +1003,89 @@ def _parse_studio(reply: str):
         except Exception as e:
             log.warning("STUDIO parse error: " + str(e))
     return reply, None
+
+
+
+# ── vault API (game client access) ────────────────────────────────────────────
+
+@app.get("/api/vault/list")
+async def vault_api_list(request: Request):
+    """List all vault notes. Requires build token."""
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not VAULT_DIR.exists():
+        return JSONResponse({"notes": []})
+    notes = []
+    for md in sorted(VAULT_DIR.rglob("*.md")):
+        rel = str(md.relative_to(VAULT_DIR)).replace("\\", "/")
+        try:
+            text = md.read_text(errors="replace")
+            lines = text.split("\n")
+            # Extract title from first heading or filename
+            title = rel.replace(".md", "").split("/")[-1]
+            for ln in lines:
+                if ln.startswith("# "):
+                    title = ln[2:].strip()
+                    break
+            # Count wikilinks
+            links = re.findall(r"\[\[([^\]]+)\]\]", text)
+            # Extract tags from frontmatter
+            tags = []
+            if text.startswith("---"):
+                fm = text.split("---")[1] if len(text.split("---")) > 2 else ""
+                tag_match = re.search(r"tags:\s*\[([^\]]+)\]", fm)
+                if tag_match:
+                    tags = [t.strip().strip('"').strip("'") for t in tag_match.group(1).split(",")]
+            notes.append({
+                "path": rel,
+                "title": title,
+                "links": links,
+                "tags": tags,
+                "size": len(text),
+                "preview": lines[0][:100] if lines else "",
+            })
+        except Exception:
+            notes.append({"path": rel, "title": rel, "links": [], "tags": [], "size": 0, "preview": ""})
+    return JSONResponse({"notes": notes})
+
+
+@app.get("/api/vault/read")
+async def vault_api_read(request: Request):
+    """Read a vault note. Requires build token."""
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    note_path = request.query_params.get("path", "")
+    if not note_path:
+        return JSONResponse({"error": "path required"}, status_code=400)
+    p = (VAULT_DIR / note_path).resolve()
+    if not str(p).startswith(str(VAULT_DIR.resolve())):
+        return JSONResponse({"error": "access denied"}, status_code=403)
+    if not p.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    text = p.read_text(errors="replace")
+    return JSONResponse({"path": note_path, "content": text})
+
+
+@app.post("/api/vault/write")
+async def vault_api_write(request: Request):
+    """Write a vault note from game client. Requires build token."""
+    if not check_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        data = await request.json()
+        note_path = data.get("path", "").strip()
+        content = data.get("content", "")
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not note_path:
+        return JSONResponse({"error": "path required"}, status_code=400)
+    p = (VAULT_DIR / note_path).resolve()
+    if not str(p).startswith(str(VAULT_DIR.resolve())):
+        return JSONResponse({"error": "access denied"}, status_code=403)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    log.info(f"VAULT API wrote {len(content)} chars → {note_path}")
+    return JSONResponse({"ok": True, "path": note_path})
 
 
 # ── visitor chat ──────────────────────────────────────────────────────────────
@@ -2091,6 +2308,7 @@ async def trigger_build(request: Request):
     Accepts JSON body with optional 'prompt' and 'type' fields.
     type: 'page' (default), 'email', 'invoice', 'social'
     """
+    return JSONResponse({"error": "build disabled — this site is hand-crafted"}, status_code=403)
     if not check_token(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     if not (VESSEL_DIR / "VESSEL.md").exists():
@@ -3074,6 +3292,7 @@ async def _run_heartbeat_task(agent_id: str, task: str, all_tasks: list, task_en
 
 @app.on_event("startup")
 async def startup():
+    _init_vault()
     """Start background services if configured."""
     if TELEGRAM_TOKEN and TELEGRAM_ALLOWED:
         asyncio.create_task(_telegram_loop())
@@ -3319,6 +3538,159 @@ async def analytics(request: Request):
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
+
+
+
+# ── vault auto-commit on room exit ────────────────────────────────────────────
+@app.post("/vault/commit")
+async def vault_commit(request: Request):
+    """Called when player leaves a room. Classifies conversation novelty via Hecate
+    and writes a vault note if the conversation contained anything worth remembering."""
+    try:
+        body = await request.json()
+        session_id = body.get("session_id", "")
+        vessel_name = body.get("vessel_name", "UNKNOWN")
+
+        # Load chat history for this session
+        history = _load_chat_history(session_id)
+        if not history or len(history) < 2:
+            return JSONResponse({"ok": True, "saved": False, "reason": "no conversation"})
+
+        # Build a conversation summary for classification
+        convo_lines = []
+        for msg in history[-20:]:  # last 20 messages max
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+            convo_lines.append(f"{role}: {content[:300]}")
+        convo_text = "\n".join(convo_lines)
+
+        # Check existing recent vault notes for similarity
+        vault_dir = Path("/root/hermes/vessel/vault")
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        sessions_dir = vault_dir / "sessions"
+        sessions_dir.mkdir(exist_ok=True)
+
+        # HRR novelty check — replaces Hecate API call (local, <10ms, free)
+        import sys
+        sys.path.insert(0, "/root/hermes")
+        from hrr import HolographicMemory
+        hrr_path = vault_dir / "hrr_memory.json"
+        hrr = HolographicMemory(path=str(hrr_path))
+        novelty_score = hrr.novelty(convo_text)
+        log.info(f"HRR novelty={novelty_score:.2f} for session {session_id}")
+
+        if novelty_score < 0.4:
+            log.info(f"VAULT skip for session {session_id}: {decision}")
+            # Record skip in habits
+            try:
+                habits = load_habits()
+                if "conversation_habits" not in habits:
+                    habits["conversation_habits"] = {}
+                ch = habits["conversation_habits"]
+                vkey = vessel_name.lower()
+                if vkey not in ch:
+                    ch[vkey] = {"total": 0, "saved": 0, "skipped": 0, "recent_topics": [], "streak": 0}
+                ch[vkey]["total"] = ch[vkey].get("total", 0) + 1
+                ch[vkey]["skipped"] = ch[vkey].get("skipped", 0) + 1
+                ch[vkey]["last_session"] = datetime.now(timezone.utc).isoformat()
+                if "_rhythm" not in ch:
+                    ch["_rhythm"] = {"daily": {}, "total_sessions": 0, "total_saved": 0}
+                ch["_rhythm"]["total_sessions"] = ch["_rhythm"].get("total_sessions", 0) + 1
+                day_key = datetime.now().strftime("%A").lower()
+                ch["_rhythm"]["daily"][day_key] = ch["_rhythm"].get("daily", {}).get(day_key, 0) + 1
+                save_habits(habits)
+            except Exception:
+                pass
+            return JSONResponse({"ok": True, "saved": False, "reason": "not novel enough"})
+
+        summary = "Session note"
+
+        # Write the vault note
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+        slug = vessel_name.lower().replace(" ", "-")
+        note_path = sessions_dir / f"{ts}_{slug}.md"
+
+        note_content = f"""---
+date: {datetime.now().strftime("%Y-%m-%d %H:%M")}
+vessel: {vessel_name}
+session: {session_id}
+tags: [session, {slug}]
+---
+
+# {vessel_name} — {datetime.now().strftime("%b %d %Y")}
+
+{summary}
+
+## Key Points
+"""
+        # Ask for a proper note
+        note_prompt = f"""Summarize this conversation into a concise vault note. Use [[wikilinks]] to link concepts.
+Include: key decisions, new info learned, ideas, action items. Be concise — bullet points preferred.
+
+Conversation:
+{convo_text}"""
+
+        note_resp = client.messages.create(
+            model=MODEL_CLASSIFY,
+            max_tokens=500,
+            messages=[{"role": "user", "content": note_prompt}],
+        )
+        note_body = note_resp.content[0].text.strip()
+        note_content += note_body + "\n"
+
+        note_path.write_text(note_content)
+        log.info(f"VAULT saved session note: {note_path.name} ({len(note_content)} chars)")
+
+        # Bind conversation keywords into HRR memory for future novelty checks
+        try:
+            hrr.bind(f"session_{vessel_name}_{ts}", convo_text[:500])
+        except Exception:
+            pass
+
+        # ── Record conversation habit ──
+        try:
+            habits = load_habits()
+            if "conversation_habits" not in habits:
+                habits["conversation_habits"] = {}
+            ch = habits["conversation_habits"]
+
+            # Track per-vessel conversation patterns
+            vkey = vessel_name.lower()
+            if vkey not in ch:
+                ch[vkey] = {"total": 0, "saved": 0, "skipped": 0, "recent_topics": [], "streak": 0}
+            vh = ch[vkey]
+            vh["total"] = vh.get("total", 0) + 1
+            vh["saved"] = vh.get("saved", 0) + 1
+            vh["streak"] = vh.get("streak", 0) + 1
+            vh["last_session"] = datetime.now().isoformat()
+            # Keep last 10 topic summaries
+            vh["recent_topics"] = (vh.get("recent_topics", []) + [summary[:100]])[-10:]
+
+            # Track overall conversation rhythm
+            if "_rhythm" not in ch:
+                ch["_rhythm"] = {"daily": {}, "total_sessions": 0, "total_saved": 0}
+            rhythm = ch["_rhythm"]
+            today = datetime.now().strftime("%Y-%m-%d")
+            day_key = datetime.now().strftime("%A").lower()
+            rhythm["total_sessions"] = rhythm.get("total_sessions", 0) + 1
+            rhythm["total_saved"] = rhythm.get("total_saved", 0) + 1
+            rhythm["daily"][day_key] = rhythm.get("daily", {}).get(day_key, 0) + 1
+            rhythm["last_active"] = today
+
+            save_habits(habits)
+            log.info(f"HABIT recorded conversation with {vessel_name}")
+        except Exception as he:
+            log.warning(f"HABIT record error: {he}")
+
+        return JSONResponse({"ok": True, "saved": True, "note": note_path.name})
+
+    except Exception as e:
+        log.error(f"VAULT commit error: {e}")
+        return JSONResponse({"ok": False, "error": str(e)})
+
 
 @app.get("/health")
 async def health():

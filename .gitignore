@@ -45,3 +45,30 @@ static/index.html
 static/landing.html
 static/parchment.html
 static/*.html
+
+# Patch scripts — one-time migration, not part of framework
+patch_*.py
+fix_*.py
+sec_patch*.py
+add_vault.py
+ollama_patch.py
+scaffold_pantheon.sh
+setup_subdomains.sh
+write_nodes.sh
+
+# Runtime data — user-specific
+vessel/vault/
+vessel/analytics.json
+vessel/chat_history.json
+vessel/generated/
+vessel/habits.json
+vessel/TASKS.md
+vessels/
+
+# Temp/backup
+*.bak
+*.pre-vault
+.last_route
+.hermes_status.sh
+.hermes_theme.json
+.hermes_tmux.conf

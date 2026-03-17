@@ -72,3 +72,4 @@ vessels/
 .hermes_status.sh
 .hermes_theme.json
 .hermes_tmux.conf
+wizard.py

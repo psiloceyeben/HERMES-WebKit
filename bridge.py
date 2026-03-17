@@ -1580,6 +1580,12 @@ def build_tree_context(route: dict) -> str:
 
 HABITS_FILE = VESSEL_DIR / "habits.json"
 
+# HRR memory for habit pattern matching
+import sys as _sys
+_sys.path.insert(0, "/root/hermes")
+from hrr import HolographicMemory as _HRR
+_hrr_habits = _HRR(path=str(VESSEL_DIR / "hrr_habits.json"))
+
 TASK_VOCAB = {
     "build", "render", "homepage", "landing", "product", "add", "create",
     "delete", "remove", "edit", "update", "store", "shop", "cart", "checkout",
@@ -1661,6 +1667,16 @@ def match_habit(request_text: str, habits: dict, context: dict = None) -> tuple:
     best_habit = None
     best_score = 0.0
 
+    # Check HRR for fast similarity match against proven actions
+    try:
+        hrr_novelty = _hrr_habits.novelty(request_text)
+        # Low novelty = we've seen this before = habits likely exist
+        # This doesn't change matching but logs useful signal
+        if hrr_novelty < 0.3:
+            log.info(f"HABIT HRR: strong match (novelty={hrr_novelty:.2f}) — known action pattern")
+    except Exception:
+        pass
+
     for key, habit in habits.get("routes", {}).items():
         if habit.get("status") not in ("proven", "learning"):
             continue
@@ -1673,6 +1689,14 @@ def match_habit(request_text: str, habits: dict, context: dict = None) -> tuple:
             continue
 
         score = overlap * habit.get("confidence", 0.5)
+
+        # HRR boost: check if this habit's signature is similar in holographic space
+        try:
+            habit_text = " ".join(habit.get("signature", [])) + " " + " ".join(habit.get("path", []))
+            hrr_sim = 1.0 - _hrr_habits.novelty(request_text + " " + habit_text)
+            score += hrr_sim * 0.3  # HRR contributes up to 0.3 to the score
+        except Exception:
+            pass
 
         conditions = habit.get("conditions", {})
         if conditions and context:
@@ -1725,6 +1749,14 @@ def record_success(habits: dict, task_key: str, signature: list, path: list, tok
         h["status"] = "proven"
     save_habits(habits)
 
+    # Bind successful action into HRR for fast future matching
+    try:
+        action_text = " ".join(signature) + " " + " ".join(path)
+        _hrr_habits.bind(f"success_{task_key}", action_text,
+            metadata={"confidence": h["confidence"], "status": h["status"]})
+    except Exception:
+        pass
+
 
 def record_failure(habits: dict, task_key: str, signature: list, path: list, failure_reason: str, context: dict = None):
     """Record failure — degrade confidence, fork or blacklist."""
@@ -1766,6 +1798,14 @@ def record_failure(habits: dict, task_key: str, signature: list, path: list, fai
             "recorded": datetime.now(timezone.utc).isoformat(),
         }
     save_habits(habits)
+
+    # Bind failure into HRR so future matching can detect similar failing patterns
+    try:
+        fail_text = " ".join(signature) + " FAIL " + failure_reason[:100]
+        _hrr_habits.bind(f"failure_{task_key}", fail_text,
+            metadata={"type": "failure"})
+    except Exception:
+        pass
 
 
 def _repair_json(raw):

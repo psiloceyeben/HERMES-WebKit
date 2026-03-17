@@ -320,6 +320,45 @@ Unchecked tasks get picked up by the heartbeat. Completed tasks are marked `[x]`
 
 The heartbeat starts automatically when the bridge starts (if VESSEL.md exists). The vessel maintains itself.
 
+### The Vault — Obsidian Knowledge Graph
+
+Every vessel has a persistent knowledge vault — an Obsidian-compatible folder of interlinked markdown notes that grows over time.
+
+When you leave a room or end a conversation, the system checks whether the conversation contained anything worth remembering. If it does, a note is written to `vessel/vault/` with YAML frontmatter, tags, and `[[wikilinks]]` connecting it to other notes. If the conversation was trivial or redundant, it is skipped.
+
+The vault is organized into folders:
+- `sessions/` — conversation summaries and decisions
+- `vessels/` — notes on each vessel and its personality
+- `knowledge/` — accumulated knowledge and references
+- `ideas/` — ideas, plans, and future directions
+
+Open the vault folder in [Obsidian](https://obsidian.md) to see the knowledge graph — a visual map of everything the hotel knows. Add your own notes and the vessels will read them too.
+
+The vault is plain markdown files on your server. No cloud. No subscription. You own the mind.
+
+### HRR — Holographic Reduced Representations
+
+Novelty detection for the vault is powered by Holographic Reduced Representations (HRR), a cognitive science technique that encodes multiple facts into a single fixed-size complex-valued vector through circular convolution.
+
+Instead of calling an API to decide whether a conversation is worth saving, the system runs a local math operation in under 10 milliseconds:
+
+1. Extract keywords from the conversation
+2. Check Jaccard similarity against stored facts
+3. Compute cosine similarity against the holographic superposition vector
+4. If novelty score > 0.4, write a vault note. Otherwise skip.
+
+The HRR vector also powers the Yesod habits system. Every successful action route is bound into a separate holographic vector (`hrr_habits.json`). Future requests check HRR similarity to find matching proven habits, adding a fast pattern-matching layer on top of the keyword-based habit matching.
+
+Key operations:
+- **Bind** — circular convolution encodes a fact into the superposition
+- **Recall** — circular correlation retrieves the most similar values
+- **Novelty** — combined keyword overlap + cosine similarity against the full memory
+- **Promote** — facts recalled 3+ times are flagged as hot (candidates for permanent context)
+
+The vector is fixed-size (1024 dimensions). Storage is tiny — only the fact index is saved to disk; the vector is rebuilt from seeded random number generators on load. The more you use the system, the smarter the novelty detection gets, and it never gets slower.
+
+HRR implementation inspired by [NeoVertex1/nuggets](https://github.com/NeoVertex1/nuggets) — a holographic memory system for AI assistants by [@NeoVertex1](https://github.com/NeoVertex1).
+
 ### Static output
 
 By default HERMES produces static output. One build, one set of HTML files, served to unlimited visitors at no additional API cost. The AI runs once per build, not once per visitor.
@@ -553,6 +592,25 @@ The architecture is fixed. The content of the tree is open.
 HERMES WEBKIT is the first product of Prometheus7 -- a company that builds tools that return capability directly to people. The Prometheus7 website is itself a HERMES vessel, running on a Hetzner VPS, built with this system as its own proof of concept.
 
 *The infrastructure layer should be yours.*
+
+---
+
+## The Grand Internet Hotel
+
+HERMES WEBKIT also ships as **The Grand Internet Hotel** — an 8-bit Electron desktop application that wraps the full vessel system in a game interface.
+
+Download at [thegrandinternethotel.com](https://thegrandinternethotel.com)
+
+The game provides:
+- A visual hotel with floors of rooms, each room a vessel
+- Point-and-click management of your server and websites
+- In-game chat with each vessel (same bridge, same routing tree)
+- One-click site creation via the setup wizard
+- Automatic vault commits when you leave a room
+- Floor 1: pantheon of specialized AI gods (ATHENA for research, APOLLO for creative, DEMETER for commerce, ARES for security, and more)
+- Floor 2: your custom vessels — any site you build gets a room
+
+The CLI and the game are two clients for the same backend. Same bridge, same vessels, same vault. Different interface.
 
 ---
 

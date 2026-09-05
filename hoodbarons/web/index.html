@@ -445,7 +445,7 @@ $('#dr-ask').onclick=ask; $('#dr-q').addEventListener('keydown',e=>{ if(e.key===
 
 // ---------- boot
 loadStrategies().catch(()=>{}); setChips(); chLoaded=true; chLive(true); loadChain();
-get('/health').then(()=>{ $('#pill').textContent='delayed data · live api'; $('#pill').classList.add('live'); }).catch(()=>{ $('#pill').textContent='api offline'; });
+get('/health').then(()=>{ if(!document.querySelector('#v-ch').classList.contains('on')) $('#pill').textContent='delayed data · live api'; $('#pill').classList.add('live'); }).catch(()=>{ $('#pill').textContent='api offline'; });
 })();
 </script>
 </body>

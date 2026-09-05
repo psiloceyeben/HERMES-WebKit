@@ -85,18 +85,23 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
 .ask input{flex:1;background:var(--card);border:1px solid var(--line);border-radius:99px;padding:10px 14px;outline:0}
 .hbar{display:flex;gap:6px;align-items:flex-end;height:120px;margin-top:10px}
 .mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.mascot-sm{width:34px;height:34px;object-fit:contain;margin-right:-2px}
+.mascot-sm+i{display:none}
+.hero-mascot{position:relative;padding-right:120px}
+.mascot-lg{position:absolute;right:-10px;top:-6px;width:130px;height:130px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,200,5,.25))}
+@media (max-width:380px){.hero-mascot{padding-right:96px}.mascot-lg{width:100px;height:100px}}
 </style>
 </head>
 <body>
 <div id="app">
 <header>
-  <div class="logo"><i>HB</i>HOODBarons</div>
+  <div class="logo"><img class="mascot-sm" src="mascot.png" alt="" onerror="this.remove()"><i>HB</i>HOODBarons</div>
   <span class="pill" id="pill">delayed data</span>
 </header>
 <main>
 
 <!-- ============ GEX ============ -->
-<section class="view on" id="v-gex">
+<section class="view" id="v-gex">
   <div class="hero">
     <div class="sub">Dealer gamma exposure</div>
     <h1 id="gex-title">GEX screener</h1>
@@ -237,8 +242,9 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
 </section>
 
 <!-- ============ CHAIN ============ -->
-<section class="view" id="v-ch">
-  <div class="hero">
+<section class="view on" id="v-ch">
+  <div class="hero hero-mascot">
+    <img class="mascot-lg" src="mascot.png" alt="HOODBarons raccoon" onerror="this.remove()">
     <div class="sub">On-chain radar</div>
     <h1 id="ch-title">Solana</h1>
     <div class="big" id="ch-big">—</div>
@@ -275,17 +281,17 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
 </div></div>
 
 <nav><div class="in">
-  <button class="on" data-v="gex"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>GEX</button>
+  <button class="on" data-v="ch"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4v4M14 17.5h-4v-4"/></svg>Chain</button>
+  <button data-v="cr"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7h6a3 3 0 010 6H8h7a3 3 0 010 6H8"/></svg>Crypto</button>
+  <button data-v="gex"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>GEX</button>
   <button data-v="opt"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Options</button>
   <button data-v="bt"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4M12 15V8M16 15v-6"/></svg>Backtest</button>
-  <button data-v="cr"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7h6a3 3 0 010 6H8h7a3 3 0 010 6H8"/></svg>Crypto</button>
-  <button data-v="ch"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4v4M14 17.5h-4v-4"/></svg>Chain</button>
 </div></nav>
 </div>
 
 <script>
 (function(){
-const API = '/HOODBarons/api';
+const API = location.protocol.startsWith('http') && location.hostname !== 'localhost' ? '/HOODBarons/api' : 'https://prometheus7.com/HOODBarons/api';  // absolute when opened as a local file
 const $ = s => document.querySelector(s);
 const ctx = {};            // last results, feeds the Oracle brief
 let lastCrypto = null, lastBars = null;
@@ -414,7 +420,7 @@ const pxf = v => v==null ? '—' : v<0.001 ? '$'+v.toExponential(2) : v<1 ? '$'+
 const ageOf = t => { if(!t) return '—'; const s=(Date.now()-t)/1000; return s<3600? Math.round(s/60)+'m' : s<86400? (s/3600).toFixed(1)+'h' : (s/86400).toFixed(1)+'d'; };
 seg('#ch-chain', m=>{ chChain=m; $('#ch-title').textContent = m==='solana'?'Solana':'Robinhood Chain'; loadChain(); });
 seg('#ch-kind', m=>{ chKind=m; loadChain(); });
-async function loadChain(silent){ $('#ch-err').textContent=''; const T=$('#ch-table'); if(!silent) T.querySelector('tbody').innerHTML='<tr><td colspan="9"><span class="spin"></span>loading…</td></tr>'; try{ const j = await get(`/chain/${chKind}?chain=${chChain}`); $('#ch-note').textContent = (j.note||'') + (chKind!=='wallets' ? ' Refreshes every 20 s while this tab is open.' : '') + (j.updated? ' · '+j.updated.slice(11,19)+' UTC':''); $('#pill').textContent = chKind==='wallets' ? 'on-chain · sampled' : 'on-chain · live'; const tb=T.querySelector('tbody'), th=T.querySelector('thead'); tb.innerHTML='';
+async function loadChain(silent){ $('#ch-err').textContent=''; const T=$('#ch-table'); if(!silent) T.querySelector('tbody').innerHTML='<tr><td colspan="9"><span class="spin"></span>loading…</td></tr>'; try{ const j = await get(`/chain/${chKind}?chain=${chChain}`); $('#ch-note').textContent = (j.note||'') + (chKind!=='wallets' ? ' Refreshes every 20 s while this tab is open.' : (j.details==='loading' ? ' Holdings and PnL still loading.' : '')) + (j.updated? ' · '+j.updated.slice(11,19)+' UTC':''); $('#pill').textContent = chKind==='wallets' ? 'on-chain · sampled' : 'on-chain · live'; const tb=T.querySelector('tbody'), th=T.querySelector('thead'); tb.innerHTML='';
   if(j.warming){ $('#ch-big').textContent='warming up'; th.innerHTML=''; tb.innerHTML='<tr><td>First refresh still running. Come back in a few minutes.</td></tr>'; return; }
   if(chKind==='top'){ $('#ch-big').textContent = j.items.length? (j.items[0].symbol+' '+pct(j.items[0].h24)) : '—'; th.innerHTML='<tr><th>Coin</th><th>Price</th><th>1h</th><th>24h</th><th>Vol 24h</th><th>Liq</th><th>Mcap</th><th>Age</th></tr>';
     j.items.forEach(t=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td><a href="${t.url}" target="_blank" rel="noopener"><b>${(t.symbol||'?').replace(/</g,'&lt;')}</b></a><br><span class="sub">${short(t.address)}</span></td><td>${pxf(t.price)}</td><td class="${t.h1>=0?'up':'dn'}">${pct(t.h1)}</td><td class="${t.h24>=0?'up':'dn'}">${pct(t.h24)}</td><td>${money(t.volume24).slice(1)}</td><td>${money(t.liquidity).slice(1)}</td><td>${t.mcap?money(t.mcap).slice(1):'—'}</td><td>${t.age}</td>`; tb.appendChild(tr); }); }
@@ -438,7 +444,7 @@ async function ask(){ const q=$('#dr-q').value.trim(); if(!q) return; const A=$(
 $('#dr-ask').onclick=ask; $('#dr-q').addEventListener('keydown',e=>{ if(e.key==='Enter') ask(); });
 
 // ---------- boot
-loadStrategies().catch(()=>{}); setChips();
+loadStrategies().catch(()=>{}); setChips(); chLoaded=true; chLive(true); loadChain();
 get('/health').then(()=>{ $('#pill').textContent='delayed data · live api'; $('#pill').classList.add('live'); }).catch(()=>{ $('#pill').textContent='api offline'; });
 })();
 </script>

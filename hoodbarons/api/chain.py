@@ -199,16 +199,17 @@ def _sol_delta(tx: dict, owner: str) -> float:
     return 0.0
 
 
-def sol_buyers(winners: list[dict], per_pool: int = 8) -> dict[str, dict]:
+def sol_buyers(winners: list[dict], per_pool: int = 8, budget_s: float = 240.0) -> dict[str, dict]:
     wallets: dict[str, dict] = {}
+    t0 = time.time()
     for w in winners:
         pool = w.get("pair")
-        if not pool:
+        if not pool or time.time() - t0 > budget_s:
             continue
         sigs = _rpc(SOL_RPC, "getSignaturesForAddress", [pool, {"limit": 30}]) or []
         seen = 0
         for s in sigs:
-            if s.get("err") or seen >= per_pool:
+            if s.get("err") or seen >= per_pool or time.time() - t0 > budget_s:
                 continue
             tx = _sol_tx(s["signature"])
             if not tx:
@@ -225,6 +226,7 @@ def sol_buyers(winners: list[dict], per_pool: int = 8) -> dict[str, dict]:
                     rec["score"] += 1.0 + min(max((w.get("h24") or 0) / 100.0, 0.0), 5.0)
                 rec["buys"].append({"token": w["symbol"], "amount": d, "time": s.get("blockTime")})
             time.sleep(0.12)
+        _log("solana pool sampled", w["symbol"], "txs", seen, "wallets so far", len(wallets), f"{time.time() - t0:.0f}s")
     return wallets
 
 
@@ -300,16 +302,17 @@ def rh_decimals(token: str) -> int:
         return 18
 
 
-def rh_buyers(winners: list[dict], per_pair: int = 15, blocks: int = 400_000) -> dict[str, dict]:
+def rh_buyers(winners: list[dict], per_pair: int = 15, blocks: int = 400_000, budget_s: float = 180.0) -> dict[str, dict]:
     """Wallets that swapped on the winners' pairs recently (tx.from of Swap logs)."""
     wallets: dict[str, dict] = {}
     head = _rpc(RH_RPC, "eth_blockNumber", [])
     if not head:
         return wallets
     head = int(head, 16)
+    t0 = time.time()
     for w in winners:
         pair = w.get("pair")
-        if not pair:
+        if not pair or time.time() - t0 > budget_s:
             continue
         logs = _rpc(RH_RPC, "eth_getLogs", [{"fromBlock": hex(max(0, head - blocks)), "toBlock": hex(head), "address": pair,
                                             "topics": [[TOPIC_SWAP_V3, TOPIC_SWAP_V2]]}]) or []
@@ -360,26 +363,36 @@ def rh_wallet(address: str, tokens: list[dict], blocks: int = 400_000) -> dict:
 
 # ------------------------------------------------------------------ orchestration
 
-def top_wallets(chain: str, top: dict) -> dict:
+def top_wallets(chain: str, top: dict, store=None, detail_budget_s: float = 240.0) -> dict:
+    """Rank buyer wallets across the winners; when `store` is given, publish partial results as they arrive."""
     winners = top["items"][:6]
-    if chain == "solana":
-        wallets = sol_buyers(winners)
-    else:
-        wallets = rh_buyers(winners)
+    t0 = time.time()
+    wallets = sol_buyers(winners) if chain == "solana" else rh_buyers(winners)
     ranked = sorted(wallets.values(), key=lambda w: (-w["score"], -len(w["buys"])))[:8]
+    note = ("Smart-money score = presence as a buyer across today's top gainers (weighted by gain). Sampled from the public RPC, not a full index."
+            if chain == "solana" else
+            "Score = presence as a swapper across today's top gainers on Robinhood Chain (Uniswap Swap logs, last ~11h). Holdings from Transfer logs + balances.")
+    res = {"chain": chain, "items": ranked, "sampled_wallets": len(wallets), "updated": datetime.utcnow().isoformat() + "Z", "note": note, "details": "loading"}
+    if store:
+        store(f"chain:{chain}:wallets", res)
+    _log(chain, "buyers ranked", len(ranked), "of", len(wallets), f"{time.time() - t0:.0f}s")
     price_of = {w["address"]: w["price"] for w in winners if w.get("price")}
     price_of[WSOL] = _sol_price() if chain == "solana" else 0.0
+    t1 = time.time()
     for w in ranked:
+        if time.time() - t1 > detail_budget_s:
+            break
         try:
             det = sol_wallet(w["address"], price_of, sample=10) if chain == "solana" else rh_wallet(w["address"], winners)
             w["holdings"], w["pnl"], w["swaps"] = det.get("holdings"), det.get("pnl"), det.get("swaps")
             w["positions"] = det.get("positions", [])[:6]
+            if store:
+                store(f"chain:{chain}:wallets", {**res, "updated": datetime.utcnow().isoformat() + "Z"})
         except Exception as e:  # noqa: BLE001
             _log("wallet detail", chain, w["address"][:8], e)
-    return {"chain": chain, "items": ranked, "sampled_wallets": len(wallets), "updated": datetime.utcnow().isoformat() + "Z",
-            "note": ("Smart-money score = presence as a buyer across today's top gainers (weighted by gain). Sampled from the public RPC, not a full index."
-                     if chain == "solana" else
-                     "Score = presence as a swapper across today's top gainers on Robinhood Chain (Uniswap Swap logs, last ~11h). Holdings from Transfer logs + balances.")}
+    res["details"] = "done"
+    res["updated"] = datetime.utcnow().isoformat() + "Z"
+    return res
 
 
 def refresh_coins(chain: str, store) -> dict:
@@ -395,7 +408,7 @@ def refresh_coins(chain: str, store) -> dict:
 def refresh_wallets(chain: str, top: dict, store) -> None:
     t0 = time.time()
     try:
-        store(f"chain:{chain}:wallets", top_wallets(chain, top))
+        store(f"chain:{chain}:wallets", top_wallets(chain, top, store))
         _log(chain, "wallets done", f"{time.time() - t0:.0f}s")
     except Exception as e:  # noqa: BLE001
         _log(chain, "wallets failed", e)

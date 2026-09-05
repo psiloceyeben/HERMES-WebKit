@@ -17,7 +17,7 @@ cp "$SRC"/api/engine.py "$SRC"/api/hoodbarons_api.py "$SRC"/api/snapshot.py "$SR
 mkdir -p "$STATIC"/cli && cp "$SRC"/cli/hoodbarons.py "$STATIC"/cli/hoodbarons  # no .py: nginx denies script extensions
 [ -f "$DST/watchlist.txt" ] || cp "$SRC"/api/watchlist.txt "$DST"/
 cp "$SRC"/web/index.html "$STATIC"/index.html
-[ -f "$SRC"/web/mascot.png ] && cp "$SRC"/web/mascot.png "$STATIC"/mascot.png
+for f in mascot.png mascot-full.png; do [ -f "$SRC"/web/$f ] && cp "$SRC"/web/$f "$STATIC"/$f; done
 chown -R hermes:hermes "$STATIC" 2>/dev/null || true
 
 echo "== service"

@@ -13,7 +13,8 @@ python3 -c "import yfinance, pandas; print('yfinance', yfinance.__version__)"
 
 echo "== files"
 mkdir -p "$DST" "$STATIC"
-cp "$SRC"/api/engine.py "$SRC"/api/hoodbarons_api.py "$SRC"/api/snapshot.py "$DST"/
+cp "$SRC"/api/engine.py "$SRC"/api/hoodbarons_api.py "$SRC"/api/snapshot.py "$SRC"/api/chain.py "$DST"/
+mkdir -p "$STATIC"/cli && cp "$SRC"/cli/hoodbarons.py "$STATIC"/cli/hoodbarons  # no .py: nginx denies script extensions
 [ -f "$DST/watchlist.txt" ] || cp "$SRC"/api/watchlist.txt "$DST"/
 cp "$SRC"/web/index.html "$STATIC"/index.html
 chown -R hermes:hermes "$STATIC" 2>/dev/null || true

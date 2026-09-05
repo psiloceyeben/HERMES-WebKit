@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import engine  # noqa: E402
+import chain  # noqa: E402
 
 PORT = int(os.environ.get("PORT", "8031"))
 DB = os.environ.get("HOODBARONS_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "hoodbarons.db"))
@@ -350,6 +351,42 @@ class H(BaseHTTPRequestHandler):
                 brief = brief_from_context(ctx)
                 oracle = ask_oracle(question) if question else {"ok": False, "answer": "", "error": "no question"}
                 return self._send(200, {"brief": brief, "oracle": oracle, "question": question})
+            if path in ("/chain/top", "/chain/new", "/chain/wallets") and method == "GET":
+                chain_ = q.get("chain", "solana")
+                if chain_ not in chain.CHAINS:
+                    return self._send(400, {"error": "chain must be solana or robinhood"})
+                kind = path.rsplit("/", 1)[1]
+                if kind != "wallets":
+                    # live: DexScreener is near-real-time, so coins/launches are computed on request behind a 20 s cache
+                    res = None if q.get("refresh") == "1" else cache_get(f"chain:{chain_}:{kind}", 20)
+                    if res is None:
+                        with _lock:
+                            res = None if q.get("refresh") == "1" else cache_get(f"chain:{chain_}:{kind}", 20)
+                            if res is None:
+                                cands = chain.candidate_tokens(chain_)
+                                res = chain.top_coins(chain_, cands) if kind == "top" else chain.new_coins(chain_, cands)
+                                res["live"] = True
+                                cache_put(f"chain:{chain_}:{kind}", res)
+                    return self._send(200, res)
+                res = cache_get(f"chain:{chain_}:{kind}", 10 * 24 * 3600)
+                if res is None:
+                    return self._send(200, {"chain": chain_, "items": [], "updated": None, "warming": True,
+                                            "note": "First refresh is still running (wallet sampling takes a few minutes on the public RPC). Try again shortly."})
+                return self._send(200, res)
+            if path == "/chain/wallet" and method == "GET":
+                chain_, address = q.get("chain", "solana"), (q.get("address") or "").strip()
+                if not address:
+                    return self._send(400, {"error": "address required"})
+                key = f"wallet:{chain_}:{address.lower()}"
+                res = cache_get(key, 10 * 60)
+                if res is None:
+                    if chain_ == "solana":
+                        res = chain.sol_wallet(address, sample=25)
+                    else:
+                        top = cache_get(f"chain:robinhood:top", 10 * 24 * 3600) or {"items": []}
+                        res = chain.rh_wallet(address, top["items"][:12])
+                    cache_put(key, res)
+                return self._send(200, res)
             if path == "/archive" and method == "GET":
                 ticker = q.get("ticker", "SPY").upper()
                 with db() as c:
@@ -375,6 +412,8 @@ class H(BaseHTTPRequestHandler):
 
 def main() -> None:
     db().close()
+    if os.environ.get("CHAIN_REFRESH", "1") == "1":
+        chain.start_refresher(cache_put, cache_get)
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
     sys.stderr.write(f"hoodbarons api on 127.0.0.1:{PORT} db={DB} oracle={ORACLE_URL}\n")
     srv.serve_forever()

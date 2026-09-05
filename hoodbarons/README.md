@@ -13,6 +13,8 @@ Education and backtesting only: no orders, no accounts, no advice.
 | `api/engine.py` | Black-Scholes, greeks, IV solve, GEX profile (flip, call wall, put wall), scenario fan, backtester + 7 strategies. Pure Python. |
 | `api/hoodbarons_api.py` | stdlib HTTP server. Chains via yfinance (delayed), crypto via Binance klines, sqlite cache + **options archive** (every screened chain is captured). `/explain` = deterministic brief from the on-screen numbers + Oracle answer. |
 | `api/snapshot.py` + `watchlist.txt` | Daily cron capture of the watchlist chains into the archive (this is how we build our own options history instead of buying a feed). |
+| `api/chain.py` | On-chain radar for **Solana** and **Robinhood Chain** (chain id 4663): most profitable coins (24h gain × log volume), newest launches (pump.fun + newest DEX pairs), smart-money wallets (buyers across the day's winners, sampled from the public RPCs), single-wallet lookup. Background refresher every 20 min. |
+| `cli/hoodbarons.py` | Stdlib CLI over the public API. `curl -o hoodbarons https://prometheus7.com/HOODBarons/cli/hoodbarons && python3 hoodbarons gex SPY`. Commands: gex, option, backtest, strategies, crypto, chain top/new/wallets, wallet, ask, archive. `--json` for raw output. |
 | `corpus/hoodbarons_d1.jsonl` | 36 finance concept articles, 224 sentences, genus-form leads, collision-free aliases. Compiled into the Oracle builds. |
 | `deploy/boxa_install.sh` | Box A: site + API service + nginx + cron + smoke. Idempotent. |
 | `deploy/boxc_oracle_install.sh` | Box C: compile corpus into its own build pair, start the harness on :8098, nginx route, probes. |
@@ -31,6 +33,13 @@ Education and backtesting only: no orders, no accounts, no advice.
 - nginx: `/etc/nginx/sites-enabled/wander` → `location = /hoodbarons-oracle/chat` → 127.0.0.1:8098/chat. Public: `https://wanderaround.io/hoodbarons-oracle/chat`.
 - Chat request body is `{"text": "..."}` (NOT `message`; `message` yields `in_surface: ""` and a clarify response).
 - Compiler/finalizer copies used: `/tmp/compile_fable_corpus_v3_hb.py` (fb_n starts after existing `fb*` page ids, the m13e7 bases already hold fb1..fb15) and `/tmp/finalize_fable_build_hb.py` (OUT/BASE hardcoded to the hoodbarons wiki build). The finalizer's deep validate reports `wikipedia_index_count_changed` but writes a `compiled` manifest; the runtime's non-deep validate accepts it and the fable pages resolve.
+
+## On-chain sources (all keyless)
+- DexScreener public API: token profiles, boosts, search, `tokens/v1/{chain}/{addrs}`; `chainId` values `solana` and `robinhood`.
+- pump.fun `frontend-api-v3.pump.fun/coins?sort=created_timestamp` for the newest Solana mints.
+- Solana public RPC `api.mainnet-beta.solana.com`: pool signatures → `getTransaction` (jsonParsed) → fee payer + token deltas; `getTokenAccountsByOwner` for holdings.
+- Robinhood Chain RPC `rpc.mainnet.chain.robinhood.com` (chain 4663, ~10 blocks/s): `eth_getLogs` Uniswap Swap topics on winner pairs → `tx.from`; Transfer logs + `balanceOf` for holdings. Blockscout (`robinhoodchain.blockscout.com`) is Cloudflare-gated to scripts, so it is not used.
+- Wallet "PnL" is a sampled flow proxy and labeled so in every response.
 
 ## Behaviors worth knowing
 - Chain window: `/chain?ticker=SPY&days=30` picks expiries inside the window, thinned to 8. yfinance placeholder IVs (<3% or >400%) are dropped; ATM IV comes from the expiry nearest 30 DTE.

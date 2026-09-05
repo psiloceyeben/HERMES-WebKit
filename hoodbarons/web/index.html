@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>HOODBarons — GEX screener, options check, strategy backtester</title>
-<meta name="description" content="HOODBarons: a Robinhood-style finance strategy lab. Dealer gamma (GEX) screener, option scenario check, backtester on real market history, crypto, and a native Oracle7 explain layer. Education and backtesting only.">
+<meta name="description" content="HOODBarons: a Robinhood-style finance strategy lab. Dealer gamma (GEX) screener, option scenario check, backtester on real market history, crypto, and an on-chain tracker for Solana and Robinhood Chain. Education and backtesting only.">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%2300c805'/><text x='50' y='68' font-size='52' text-anchor='middle' font-family='Arial' font-weight='700' fill='%23000'>HB</text></svg>">
 <style>
@@ -236,14 +236,36 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
   <div class="card sub" style="font-size:13px">Dealer gamma for BTC and ETH options follows the same math as equities once a public chain source is wired. The screener is built to accept it.</div>
 </section>
 
-<div class="disc">HOODBarons is a strategy lab for education and backtesting. Nothing here is investment advice, no orders are placed, no accounts are linked. Options and crypto involve substantial risk. Market data is delayed; modeled option prices use Black-Scholes and are labeled as such. Powered by a dedicated Oracle7 instance at Prometheus7.</div>
+<!-- ============ CHAIN ============ -->
+<section class="view" id="v-ch">
+  <div class="hero">
+    <div class="sub">On-chain radar</div>
+    <h1 id="ch-title">Solana</h1>
+    <div class="big" id="ch-big">—</div>
+    <div class="sub" id="ch-sub">Most profitable coins, newest launches, and the wallets buying the winners.</div>
+  </div>
+  <div class="seg" id="ch-chain"><button class="on" data-m="solana">Solana</button><button data-m="robinhood">Robinhood Chain</button></div>
+  <div class="seg" id="ch-kind"><button class="on" data-m="top">Top coins</button><button data-m="new">New launches</button><button data-m="wallets">Top wallets</button></div>
+  <div class="note" id="ch-note"></div>
+  <div class="err" id="ch-err"></div>
+  <div class="card tscroll" id="ch-out"><table id="ch-table"><thead></thead><tbody></tbody></table></div>
+  <h2>Wallet lookup</h2>
+  <div class="row"><div class="field" style="flex:3"><label>Address</label><input id="ch-addr" placeholder="wallet address" spellcheck="false"></div><button class="btn sm" id="ch-look" style="margin-top:0">Look up</button></div>
+  <div id="ch-wallet" style="display:none">
+    <div class="card"><div class="kv"><div><span>Holdings</span><b id="cw-hold">—</b></div><div><span>Flow PnL</span><b id="cw-pnl">—</b></div><div><span>Swaps sampled</span><b id="cw-swaps">—</b></div><div><span>Chain</span><b id="cw-chain">—</b></div></div><div class="note" id="cw-note"></div></div>
+    <div class="card tscroll"><table id="cw-table"><thead><tr><th>Token</th><th>Amount</th><th>Price</th><th>Value</th><th>Net flow</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card sub" style="font-size:13px;margin-top:16px">Sources: DexScreener and pump.fun for coins, the public Solana RPC and the Robinhood Chain RPC (chain 4663) for wallets. Everything here is sampled and delayed, and most new launches go to zero. Radar, not recommendations.</div>
+</section>
+
+<div class="disc">HOODBarons is a strategy lab for education and backtesting. Nothing here is investment advice, no orders are placed, no accounts are linked. Options and crypto involve substantial risk. Market data is delayed; modeled option prices use Black-Scholes and are labeled as such.<br><br><b style="color:var(--mut)">Built by Prometheus7 · Powered by Oracle7</b></div>
 </main>
 
-<button class="fab" id="fab">✦ Oracle</button>
+<button class="fab" id="fab">✦ Ask</button>
 <div class="drawer" id="drawer"><div class="in">
   <div class="handle"></div>
-  <div class="row" style="justify-content:space-between"><b>Oracle7 · HOODBarons instance</b><button class="btn ghost sm" id="dr-close">Close</button></div>
-  <div class="sub" style="margin-top:6px">The brief is computed from the numbers on screen. The Oracle answers from its own finance corpus, with references.</div>
+  <div class="row" style="justify-content:space-between"><b>HOODBarons Brief &amp; Ask</b><button class="btn ghost sm" id="dr-close">Close</button></div>
+  <div class="sub" style="margin-top:6px">The brief is computed from the numbers on screen. Answers come from the HOODBarons knowledge base, with references.</div>
   <h2 style="margin-top:14px">Brief</h2>
   <ul class="brief" id="dr-brief"><li class="sub">Run something first.</li></ul>
   <h2 style="margin-top:14px">Ask</h2>
@@ -257,6 +279,7 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
   <button data-v="opt"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Options</button>
   <button data-v="bt"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4M12 15V8M16 15v-6"/></svg>Backtest</button>
   <button data-v="cr"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7h6a3 3 0 010 6H8h7a3 3 0 010 6H8"/></svg>Crypto</button>
+  <button data-v="ch"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4v4M14 17.5h-4v-4"/></svg>Chain</button>
 </div></nav>
 </div>
 
@@ -306,7 +329,7 @@ function chartBars(canvas, rows, spot){
 }
 
 // ---------- nav
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v)); window.scrollTo(0,0); if(b.dataset.v==='cr'&&!lastCrypto) loadCrypto('BTC'); if(b.dataset.v==='bt') archiveStatus(); });
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v)); window.scrollTo(0,0); if(b.dataset.v==='cr'&&!lastCrypto) loadCrypto('BTC'); if(b.dataset.v==='bt') archiveStatus(); if(b.dataset.v==='ch'){ chLive(true); if(!chLoaded){ chLoaded=true; loadChain(); } } else { chLive(false); $('#pill').textContent='delayed data · live api'; } });
 function seg(id, onChange){ const el=$(id); el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ el.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); onChange(b.dataset.m); }); }
 seg('#gex-mode', m=>{ $('#gex-auto').style.display = m==='auto'?'':'none'; $('#gex-manual').style.display = m==='manual'?'':'none'; });
 seg('#opt-mode', m=>{ $('#opt-manual').style.display = m==='manual'?'':'none'; });
@@ -383,14 +406,35 @@ async function loadCrypto(sym){ lastCrypto=sym; $('#c-sub').textContent='Loading
   $('#c-sub').textContent=`${sym}/USDT · ${j.bars[0].date} → ${j.bars[j.bars.length-1].date} · daily`; chartLines($('#c-chart'), [{color: ch(365)>=0?'#00c805':'#ff5000', y}], {fmt:v=>'$'+fmt(v,last<1?3:0), xlabels:[[0,j.bars[0].date],[y.length-1,j.bars[j.bars.length-1].date]]}); }catch(e){ $('#c-sub').textContent=e.message; } }
 $('#c-bt').onclick=()=>{ $('#b-sym').value=lastCrypto||'BTC'; $('#b-asset').value='crypto'; document.querySelector('nav button[data-v=bt]').click(); };
 
+// ---------- Chain radar
+let chChain='solana', chKind='top', chLoaded=false, chTimer=null;
+function chLive(on){ clearInterval(chTimer); chTimer=null; if(on) chTimer=setInterval(()=>{ if(document.querySelector('#v-ch').classList.contains('on') && chKind!=='wallets') loadChain(true); }, 20000); }
+const short = a => a ? a.slice(0,6)+'…'+a.slice(-4) : '—';
+const pxf = v => v==null ? '—' : v<0.001 ? '$'+v.toExponential(2) : v<1 ? '$'+fmt(v,5) : '$'+fmt(v,2);
+const ageOf = t => { if(!t) return '—'; const s=(Date.now()-t)/1000; return s<3600? Math.round(s/60)+'m' : s<86400? (s/3600).toFixed(1)+'h' : (s/86400).toFixed(1)+'d'; };
+seg('#ch-chain', m=>{ chChain=m; $('#ch-title').textContent = m==='solana'?'Solana':'Robinhood Chain'; loadChain(); });
+seg('#ch-kind', m=>{ chKind=m; loadChain(); });
+async function loadChain(silent){ $('#ch-err').textContent=''; const T=$('#ch-table'); if(!silent) T.querySelector('tbody').innerHTML='<tr><td colspan="9"><span class="spin"></span>loading…</td></tr>'; try{ const j = await get(`/chain/${chKind}?chain=${chChain}`); $('#ch-note').textContent = (j.note||'') + (chKind!=='wallets' ? ' Refreshes every 20 s while this tab is open.' : '') + (j.updated? ' · '+j.updated.slice(11,19)+' UTC':''); $('#pill').textContent = chKind==='wallets' ? 'on-chain · sampled' : 'on-chain · live'; const tb=T.querySelector('tbody'), th=T.querySelector('thead'); tb.innerHTML='';
+  if(j.warming){ $('#ch-big').textContent='warming up'; th.innerHTML=''; tb.innerHTML='<tr><td>First refresh still running. Come back in a few minutes.</td></tr>'; return; }
+  if(chKind==='top'){ $('#ch-big').textContent = j.items.length? (j.items[0].symbol+' '+pct(j.items[0].h24)) : '—'; th.innerHTML='<tr><th>Coin</th><th>Price</th><th>1h</th><th>24h</th><th>Vol 24h</th><th>Liq</th><th>Mcap</th><th>Age</th></tr>';
+    j.items.forEach(t=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td><a href="${t.url}" target="_blank" rel="noopener"><b>${(t.symbol||'?').replace(/</g,'&lt;')}</b></a><br><span class="sub">${short(t.address)}</span></td><td>${pxf(t.price)}</td><td class="${t.h1>=0?'up':'dn'}">${pct(t.h1)}</td><td class="${t.h24>=0?'up':'dn'}">${pct(t.h24)}</td><td>${money(t.volume24).slice(1)}</td><td>${money(t.liquidity).slice(1)}</td><td>${t.mcap?money(t.mcap).slice(1):'—'}</td><td>${t.age}</td>`; tb.appendChild(tr); }); }
+  else if(chKind==='new'){ $('#ch-big').textContent = j.items.length? j.items.length+' launches' : '—'; th.innerHTML='<tr><th>Coin</th><th>Age</th><th>Mcap</th><th>Liq</th><th>Source</th></tr>';
+    j.items.forEach(t=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td><a href="${t.url||'#'}" target="_blank" rel="noopener"><b>${(t.symbol||'?').replace(/</g,'&lt;')}</b></a> <span class="sub">${(t.name||'').replace(/</g,'&lt;').slice(0,24)}</span><br><span class="sub">${short(t.address)}</span></td><td>${t.age||ageOf(t.created)}</td><td>${t.mcap?money(t.mcap).slice(1):'—'}</td><td>${t.liquidity!=null?money(t.liquidity).slice(1):'—'}</td><td>${t.source||''}${t.graduated?' <span class="tag gold">grad</span>':''}</td>`; tb.appendChild(tr); }); }
+  else { $('#ch-big').textContent = j.items.length? j.items.length+' wallets' : '—'; th.innerHTML='<tr><th>Wallet</th><th>Score</th><th>Winners</th><th>Flow PnL</th><th>Holdings</th><th>Tokens</th></tr>';
+    j.items.forEach(w=>{ const tr=document.createElement('tr'); tr.style.cursor='pointer'; tr.onclick=()=>{ $('#ch-addr').value=w.address; lookupWallet(); }; tr.innerHTML=`<td><b>${short(w.address)}</b></td><td>${fmt(w.score,1)}</td><td>${w.winners}</td><td class="${(w.pnl||0)>=0?'up':'dn'}">${w.pnl!=null?money(w.pnl):'—'}</td><td>${w.holdings!=null?money(w.holdings).slice(1):'—'}</td><td class="sub">${(w.tokens||[]).slice(0,4).join(', ').replace(/</g,'&lt;')}</td>`; tb.appendChild(tr); }); }
+  if(!j.items.length) tb.innerHTML='<tr><td>Nothing passed the filters right now.</td></tr>'; }catch(e){ $('#ch-err').textContent=e.message; } }
+async function lookupWallet(){ const a=$('#ch-addr').value.trim(); if(!a) return; const b=$('#ch-look'); busy(b,true,'Looking…'); $('#ch-err').textContent=''; try{ const j = await get(`/chain/wallet?chain=${chChain}&address=${encodeURIComponent(a)}`); $('#ch-wallet').style.display=''; $('#cw-hold').textContent = j.holdings!=null? money(j.holdings).slice(1):'—'; $('#cw-pnl').textContent = j.pnl!=null? money(j.pnl) : (j.net_flow_usd!=null? money(j.net_flow_usd)+' flow':'—'); cls($('#cw-pnl'), j.pnl ?? j.net_flow_usd ?? 0); $('#cw-swaps').textContent=j.swaps ?? '—'; $('#cw-chain').textContent=j.chain; $('#cw-note').textContent=j.note||'';
+  const tb=$('#cw-table tbody'); tb.innerHTML=''; (j.positions||[]).slice(0,20).forEach(p=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${(p.symbol||short(p.mint)).replace(/</g,'&lt;')}</td><td>${fmt(p.amount,4)}</td><td>${pxf(p.price)}</td><td>${p.value!=null?money(p.value).slice(1):'—'}</td><td class="${(p.net_flow||0)>=0?'up':'dn'}">${p.net_flow!=null?money(p.net_flow):'—'}</td>`; tb.appendChild(tr); }); window.scrollTo({top:$('#ch-wallet').offsetTop-80, behavior:'smooth'}); }catch(e){ $('#ch-err').textContent=e.message; } busy(b,false,'Look up'); }
+$('#ch-look').onclick=lookupWallet; $('#ch-addr').addEventListener('keydown',e=>{ if(e.key==='Enter') lookupWallet(); });
+
 // ---------- Oracle drawer
 const drawer=$('#drawer'); $('#fab').onclick=()=>{ drawer.classList.add('on'); refreshBrief(); }; $('#dr-close').onclick=()=>drawer.classList.remove('on');
 function setChips(){ const qs=['what is gamma exposure','what is a gamma flip','what is a call wall','what is dealer hedging','what is implied volatility','what is theta decay','what is an iron condor','what is the wheel strategy','what is a covered call','what is backtesting','what is maximum drawdown','what is the sharpe ratio','what is dollar cost averaging','what is mean reversion'];
   const pickQ = ctx.fan ? qs.filter(q=>/theta|implied|gamma exposure|call wall/.test(q)) : ctx.backtest ? qs.filter(q=>/backtest|drawdown|sharpe|wheel|condor|covered|dollar|mean/.test(q)) : qs.filter(q=>/gamma|wall|dealer|implied/.test(q));
   $('#dr-chips').innerHTML=''; pickQ.slice(0,6).forEach(q=>{ const b=document.createElement('button'); b.className='chip'; b.textContent=q; b.onclick=()=>{ $('#dr-q').value=q; ask(); }; $('#dr-chips').appendChild(b); }); }
 async function refreshBrief(){ try{ const r = await post('/explain',{question:'', context:{profile:ctx.profile, fan:ctx.fan, backtest:ctx.backtest, symbol:ctx.symbol}}); $('#dr-brief').innerHTML = r.brief.map(s=>`<li>${s}</li>`).join(''); }catch(e){ $('#dr-brief').innerHTML='<li class="err">'+e.message+'</li>'; } if(!$('#dr-chips').children.length) setChips(); }
-async function ask(){ const q=$('#dr-q').value.trim(); if(!q) return; const A=$('#dr-ans'); A.innerHTML='<div class="oracle-a"><span class="spin"></span>Oracle is thinking…</div>'; try{ const r = await post('/explain',{question:q, context:{}}); const o=r.oracle;
-  A.innerHTML = o.ok ? `<div class="oracle-a">${(o.answer||'(no answer)').replace(/</g,'&lt;')}</div><div class="refs">${o.status||''} · ${o.path||''}${o.latency_ms?' · '+fmt(o.latency_ms,0)+' ms':''}${o.references&&o.references.length?'<br>refs: '+o.references.map(x=>typeof x==='string'?x:(x.id||x.title||JSON.stringify(x))).join(', ').replace(/</g,'&lt;'):''}</div>` : `<div class="oracle-a">The Oracle instance did not answer (${(o.error||'').replace(/</g,'&lt;')}). The brief above is computed locally and still stands.</div>`; }catch(e){ A.innerHTML='<div class="err">'+e.message+'</div>'; } }
+async function ask(){ const q=$('#dr-q').value.trim(); if(!q) return; const A=$('#dr-ans'); A.innerHTML='<div class="oracle-a"><span class="spin"></span>Thinking…</div>'; try{ const r = await post('/explain',{question:q, context:{}}); const o=r.oracle;
+  A.innerHTML = o.ok ? `<div class="oracle-a">${(o.answer||'(no answer)').replace(/</g,'&lt;')}</div><div class="refs">${o.status||''} · ${o.path||''}${o.latency_ms?' · '+fmt(o.latency_ms,0)+' ms':''}${o.references&&o.references.length?'<br>refs: '+o.references.map(x=>typeof x==='string'?x:(x.id||x.title||JSON.stringify(x))).join(', ').replace(/</g,'&lt;'):''}</div>` : `<div class="oracle-a">The knowledge base did not answer (${(o.error||'').replace(/</g,'&lt;')}). The brief above is computed locally and still stands.</div>`; }catch(e){ A.innerHTML='<div class="err">'+e.message+'</div>'; } }
 $('#dr-ask').onclick=ask; $('#dr-q').addEventListener('keydown',e=>{ if(e.key==='Enter') ask(); });
 
 // ---------- boot

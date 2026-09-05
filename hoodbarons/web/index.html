@@ -250,6 +250,13 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
     <div class="big" id="ch-big">—</div>
     <div class="sub" id="ch-sub">Most profitable coins, newest launches, and the wallets buying the winners.</div>
   </div>
+  <div class="card token" id="token-card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><div class="sub">HOODBarons token</div><b id="tk-sym" style="font-size:20px">$HOODB</b> <span class="tag soon" id="tk-status">launching soon</span></div>
+      <button class="btn ghost sm" id="tk-copy" disabled>Copy CA</button>
+    </div>
+    <div class="mono" id="tk-addr" style="margin-top:8px;color:var(--mut);word-break:break-all">Contract address: TBA · the only official address will be posted here and on Prometheus7. Anything else is a scam.</div>
+  </div>
   <div class="seg" id="ch-chain"><button class="on" data-m="solana">Solana</button><button data-m="robinhood">Robinhood Chain</button></div>
   <div class="seg" id="ch-kind"><button class="on" data-m="top">Top coins</button><button data-m="new">New launches</button><button data-m="wallets">Top wallets</button></div>
   <div class="note" id="ch-note"></div>
@@ -264,7 +271,7 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
   <div class="card sub" style="font-size:13px;margin-top:16px">Sources: DexScreener and pump.fun for coins, the public Solana RPC and the Robinhood Chain RPC (chain 4663) for wallets. Everything here is sampled and delayed, and most new launches go to zero. Radar, not recommendations.</div>
 </section>
 
-<div class="disc">HOODBarons is a strategy lab for education and backtesting. Nothing here is investment advice, no orders are placed, no accounts are linked. Options and crypto involve substantial risk. Market data is delayed; modeled option prices use Black-Scholes and are labeled as such.<br><br><b style="color:var(--mut)">Built by Prometheus7 · Powered by Oracle7</b></div>
+<div class="disc">HOODBarons is a strategy lab for education and backtesting. Nothing here is investment advice, no orders are placed, no accounts are linked. Options and crypto involve substantial risk. Market data is delayed; modeled option prices use Black-Scholes and are labeled as such.<br><br><span id="tk-foot">$HOODB token: contract address TBA</span><br><b style="color:var(--mut)">Built by Prometheus7 · Powered by Oracle7</b></div>
 </main>
 
 <button class="fab" id="fab">✦ Ask</button>
@@ -291,6 +298,9 @@ nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stro
 
 <script>
 (function(){
+// ---------- token (set address + chain when it launches; everything else updates from this)
+const TOKEN = { symbol: '$HOODB', chain: 'solana', address: '', url: '' };
+(function(){ const a = TOKEN.address.trim(); document.querySelector('#tk-sym').textContent = TOKEN.symbol; if(a){ document.querySelector('#tk-status').textContent = 'live on ' + TOKEN.chain; document.querySelector('#tk-status').className = 'tag gold'; document.querySelector('#tk-addr').textContent = a; const b = document.querySelector('#tk-copy'); b.disabled = false; b.onclick = () => { navigator.clipboard.writeText(a).then(()=>{ b.textContent='Copied'; setTimeout(()=>b.textContent='Copy CA', 1500); }); }; const f = document.querySelector('#tk-foot'); if(f) f.textContent = TOKEN.symbol + ' CA: ' + a; } })();
 const API = location.protocol.startsWith('http') && location.hostname !== 'localhost' ? '/HOODBarons/api' : 'https://prometheus7.com/HOODBarons/api';  // absolute when opened as a local file
 const $ = s => document.querySelector(s);
 const ctx = {};            // last results, feeds the Oracle brief

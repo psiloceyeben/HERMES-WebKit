@@ -1,0 +1,16 @@
+# HOODBarons daily snapshot watchlist — one ticker per line
+SPY
+QQQ
+IWM
+AAPL
+NVDA
+TSLA
+AMZN
+MSFT
+META
+GOOGL
+AMD
+COIN
+MSTR
+GLD
+TLT

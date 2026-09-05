@@ -95,11 +95,11 @@ def pick_expiries(all_exp: list[str], days: int, now: datetime, cap: int = 8) ->
     return [inside[i] for i in idx]
 
 
-def fetch_chain(ticker: str, days: int = 30) -> dict:
+def fetch_chain(ticker: str, days: int = 30, cache: bool = True, deep: bool = True) -> dict:
     ticker = ticker.upper().strip()
     days = max(1, min(int(days), 120))
     key = f"chain:{ticker}:d{days}"
-    hit = cache_get(key, CHAIN_TTL)
+    hit = cache_get(key, CHAIN_TTL) if cache else None
     if hit:
         hit["cached"] = True
         return hit
@@ -140,17 +140,27 @@ def fetch_chain(ticker: str, days: int = 30) -> dict:
     out = {"ticker": ticker, "spot": spot, "expiries": expiries, "window_days": days, "asof": now.isoformat() + "Z",
            "delayed": True, "atm_iv": atm["iv"], "atm_iv_expiry": ref_exp, "profile": prof,
            "rows": [r_ for r_ in rows if abs(r_["strike"] / spot - 1) <= 0.12], "cached": False}
-    cache_put(key, out)
-    capture_snapshot(ticker, spot, rows, prof)
+    if cache:
+        cache_put(key, out)
+    capture_snapshot(ticker, spot, rows, prof, deep=deep)
     return out
 
 
-def capture_snapshot(ticker: str, spot: float, rows: list[dict], prof: dict) -> None:
+def capture_snapshot(ticker: str, spot: float, rows: list[dict], prof: dict, deep: bool = True) -> None:
+    """Archive one chain. Every ticker gets a levels row + a gzip blob of the live strikes (±15% of
+    spot, OI > 0); deep-watchlist tickers also get full per-strike rows in `snapshots`."""
+    import gzip
     day = date.today().isoformat()
+    live = [r_ for r_ in rows if r_["oi"] > 0 and abs(r_["strike"] / spot - 1) <= 0.15]
+    blob = gzip.compress(json.dumps([[r_["expiry"], r_["strike"], r_["kind"], r_["oi"], round(r_["iv"], 4), r_["bid"], r_["ask"]] for r_ in live],
+                                    separators=(",", ":")).encode(), 6)
     with db() as c:
-        c.executemany("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?,?,?,?,?)",
-                      [(ticker, day, r_["expiry"], r_["strike"], r_["kind"], r_["oi"], r_["iv"], r_["bid"], r_["ask"], spot)
-                       for r_ in rows])
+        c.execute("CREATE TABLE IF NOT EXISTS chains_gz(ticker TEXT, day TEXT, spot REAL, n INTEGER, blob BLOB, PRIMARY KEY(ticker, day))")
+        c.execute("INSERT OR REPLACE INTO chains_gz VALUES(?,?,?,?,?)", (ticker, day, spot, len(live), blob))
+        if deep:
+            c.executemany("INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          [(ticker, day, r_["expiry"], r_["strike"], r_["kind"], r_["oi"], r_["iv"], r_["bid"], r_["ask"], spot)
+                           for r_ in rows])
         c.execute("INSERT OR REPLACE INTO levels VALUES(?,?,?,?,?,?,?)",
                   (ticker, day, spot, prof["net_gex"], prof["gamma_flip"], prof["call_wall"], prof["put_wall"]))
 
@@ -393,7 +403,14 @@ class H(BaseHTTPRequestHandler):
                     n, first, last = c.execute("SELECT COUNT(*), MIN(day), MAX(day) FROM snapshots WHERE ticker=?", (ticker,)).fetchone()
                     lv = c.execute("SELECT day, spot, net_gex, gamma_flip, call_wall, put_wall FROM levels WHERE ticker=? ORDER BY day", (ticker,)).fetchall()
                     tickers = [r_[0] for r_ in c.execute("SELECT DISTINCT ticker FROM levels ORDER BY ticker")]
+                    days = c.execute("SELECT COUNT(DISTINCT day) FROM levels").fetchone()[0]
+                    today_n = c.execute("SELECT COUNT(*) FROM levels WHERE day=?", (date.today().isoformat(),)).fetchone()[0]
+                    try:
+                        gz_n, gz_bytes = c.execute("SELECT COUNT(*), COALESCE(SUM(LENGTH(blob)),0) FROM chains_gz").fetchone()
+                    except sqlite3.OperationalError:
+                        gz_n, gz_bytes = 0, 0
                 return self._send(200, {"ticker": ticker, "rows": n, "first": first, "last": last, "tickers": tickers,
+                                        "days": days, "captured_today": today_n, "chains_archived": gz_n, "archive_bytes": gz_bytes,
                                         "levels": [dict(zip(("day", "spot", "net_gex", "gamma_flip", "call_wall", "put_wall"), r_)) for r_ in lv]})
             return self._send(404, {"error": "not found"})
         except KeyError as e:

@@ -16,6 +16,7 @@ mkdir -p "$DST" "$STATIC"
 cp "$SRC"/api/engine.py "$SRC"/api/hoodbarons_api.py "$SRC"/api/snapshot.py "$SRC"/api/chain.py "$DST"/
 mkdir -p "$STATIC"/cli && cp "$SRC"/cli/hoodbarons.py "$STATIC"/cli/hoodbarons  # no .py: nginx denies script extensions
 [ -f "$DST/watchlist.txt" ] || cp "$SRC"/api/watchlist.txt "$DST"/
+[ -f "$DST/watchlist_sp500.txt" ] || cp "$SRC"/api/watchlist_sp500.txt "$DST"/ 2>/dev/null || true
 cp "$SRC"/web/index.html "$STATIC"/index.html
 for f in mascot.png mascot-full.png; do [ -f "$SRC"/web/$f ] && cp "$SRC"/web/$f "$STATIC"/$f; done
 chown -R hermes:hermes "$STATIC" 2>/dev/null || true

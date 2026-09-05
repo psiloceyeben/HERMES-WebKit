@@ -41,6 +41,16 @@ Education and backtesting only: no orders, no accounts, no advice.
 - Robinhood Chain RPC `rpc.mainnet.chain.robinhood.com` (chain 4663, ~10 blocks/s): `eth_getLogs` Uniswap Swap topics on winner pairs → `tx.from`; Transfer logs + `balanceOf` for holdings. Blockscout (`robinhoodchain.blockscout.com`) is Cloudflare-gated to scripts, so it is not used.
 - Wallet "PnL" is a sampled flow proxy and labeled so in every response.
 
+## Token
+The site carries a `$HOODB` token card (Chain tab) and a footer line. Both read one constant near the top of the script in `web/index.html`:
+```
+const TOKEN = { symbol: '$HOODB', chain: 'solana', address: '', url: '' };
+```
+Set `address` when the token launches; the card flips from "launching soon" to "live on <chain>", shows the address, enables the Copy CA button, and the footer updates. Until then it says TBA with a scam warning.
+
+## Mascot
+`web/mascot.png` (420 px, served in the header and the Chain hero) and `web/mascot-full.png` (1254 px original). Both slots hide themselves if the file is missing.
+
 ## Behaviors worth knowing
 - Chain window: `/chain?ticker=SPY&days=30` picks expiries inside the window, thinned to 8. yfinance placeholder IVs (<3% or >400%) are dropped; ATM IV comes from the expiry nearest 30 DTE.
 - Scenario fan IV rule (declared in the UI): below the flip ×1.20, at/above the walls ×0.90, at spot ×1.00.
